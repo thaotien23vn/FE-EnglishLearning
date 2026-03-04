@@ -45,9 +45,9 @@ export interface User {
 export const mockUsers: User[] = [
   {
     id: "s1",
-    fullName: "Trần Thảo Tiên",
-    username: "thaotiendepgainhattrendoi",
-    email: "thaotien23@gmail.com",
+    fullName: "Nguyễn Thành Hiệp",
+    username: "vuongthiennguyenhiep",
+    email: "hiepnguyen.250402@gmail.com",
     password: "password123",
     role: "STUDENT",
     avatar: "https://i.pravatar.cc/150?u=s1",
