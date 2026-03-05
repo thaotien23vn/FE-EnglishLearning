@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useEnrollmentStore } from '../../store/useEnrollmentStore';
 import {
@@ -16,7 +16,7 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
-    const { enrolledCourses } = useEnrollmentStore();
+    const { enrolledCourses, syncEnrollments } = useEnrollmentStore();
     const [isAuthOpen, setIsAuthOpen] = useState(false);
     const [isSearchOpen, setIsSearchOpen] = useState(false);
     const [authMode, setAuthMode] = useState<'LOGIN' | 'REGISTER'>('LOGIN');
@@ -40,6 +40,12 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+
+    useEffect(() => {
+        if (!user) return;
+        if (user.role !== 'STUDENT') return;
+        syncEnrollments();
+    }, [user]);
 
     return (
         <>

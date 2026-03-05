@@ -4,11 +4,13 @@ import Home from './pages/Home';
 import Courses from './pages/Courses';
 import CourseDetails from './pages/CourseDetails';
 import LessonPlayer from './pages/LessonPlayer';
+import Payment from './pages/Payment';
 import Profile from './pages/Profile';
 import LearningSchedule from './pages/LearningSchedule';
 import EnrollmentList from './pages/EnrollmentList';
 import MyLearning from './pages/MyLearning';
 import MyTests from './pages/MyTests';
+import Login from './pages/Login';
 import TeacherDashboard from './pages/teacher/Dashboard';
 import StudentManagement from './pages/teacher/StudentManagement';
 import QuizManagement from './pages/teacher/QuizManagement';
@@ -25,10 +27,19 @@ function App() {
     <AuthProvider>
       <BrowserRouter>
         <Routes>
+          <Route path="/login" element={<Login />} />
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Home />} />
             <Route path="courses" element={<Courses />} />
             <Route path="course/:id" element={<CourseDetails />} />
+            <Route
+              path="payment"
+              element={
+                <ProtectedRoute allowedRoles={['STUDENT', 'ADMIN']}>
+                  <Payment />
+                </ProtectedRoute>
+              }
+            />
             <Route path="registrations" element={<EnrollmentList />} />
             <Route
               path="/my-learning"

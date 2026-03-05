@@ -11,7 +11,7 @@ interface AuthModalProps {
 }
 
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'LOGIN' }) => {
-    const { login, register } = useAuth();
+    const { login, register, verifyEmailCode, forgotPassword } = useAuth();
     const [mode, setMode] = useState<AuthMode>(initialMode);
 
     // Form states
@@ -28,6 +28,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
     const [otpSuccess, setOtpSuccess] = useState(false);
     const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
 
+    const [pendingRegister, setPendingRegister] = useState<{
+        email: string;
+        password: string;
+        fullName: string;
+        phone?: string;
+    } | null>(null);
+
+    const [forgotEmail, setForgotEmail] = useState('');
+
     useEffect(() => {
         if (isOpen) {
             setMode(initialMode);
@@ -35,12 +44,14 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
             setOtpError(false);
             setOtpSuccess(false);
             setError('');
+            setPendingRegister(null);
             // Reset form
             setEmail('');
             setPassword('');
             setFullName('');
             setPhoneNumber('');
             setConfirmPassword('');
+            setForgotEmail('');
         }
     }, [isOpen, initialMode]);
 
@@ -62,7 +73,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
         }
     };
 
-    const handleRegisterStep1 = (e: React.FormEvent) => {
+    const handleRegisterStep1 = async (e: React.FormEvent) => {
         e.preventDefault();
         if (password !== confirmPassword) {
             setError('Mật khẩu xác nhận không khớp');
@@ -72,22 +83,67 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
             setError('Vui lòng điền đầy đủ thông tin bắt buộc');
             return;
         }
-        setMode('OTP_VERIFY');
-    };
 
-    const handleFinalRegister = async () => {
+        setError('');
         setLoading(true);
         try {
-            await register({
+            const ok = await register({
                 email,
                 password,
                 fullName,
                 phone: phoneNumber,
                 role: 'STUDENT'
             });
-            onClose();
+
+            if (!ok) {
+                setError('Không thể đăng ký. Vui lòng thử lại');
+                return;
+            }
+
+            setPendingRegister({
+                email,
+                password,
+                fullName,
+                phone: phoneNumber,
+            });
+
+            setMode('OTP_VERIFY');
         } catch (err) {
             setError('Không thể đăng ký. Vui lòng thử lại');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleFinalRegister = async () => {
+        const code = otp.join('');
+        if (code.length !== 6) return;
+        if (!pendingRegister) {
+            setError('Phiên đăng ký đã hết hạn. Vui lòng thử lại.');
+            setMode('REGISTER');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+        try {
+            const verified = await verifyEmailCode(code);
+            if (!verified) {
+                setOtpError(true);
+                setOtpSuccess(false);
+                return;
+            }
+
+            setOtpSuccess(true);
+            setOtpError(false);
+
+            const loggedIn = await login(pendingRegister.email, pendingRegister.password);
+            if (loggedIn) {
+                onClose();
+            }
+        } catch (err) {
+            setOtpError(true);
+            setOtpSuccess(false);
         } finally {
             setLoading(false);
         }
@@ -105,17 +161,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
         }
 
         if (newOtp.every(val => val !== '')) {
-            const code = newOtp.join('');
-            if (code === '123456') {
-                setOtpSuccess(true);
-                setOtpError(false);
-            } else {
-                setOtpError(true);
-                setOtpSuccess(false);
-            }
-        } else {
             setOtpError(false);
-            setOtpSuccess(false);
         }
     };
 
@@ -294,6 +340,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
                     type="email"
                     placeholder="Email của bạn"
                     className={inputClasses}
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
                 />
             </div>
             <div className="flex justify-center gap-6 pt-4">
@@ -303,7 +351,24 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
                 >
                     Hủy bỏ
                 </button>
-                <button className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg shadow-blue-100">
+                <button
+                    disabled={loading || !forgotEmail}
+                    onClick={async () => {
+                        setLoading(true);
+                        setError('');
+                        try {
+                            const ok = await forgotPassword(forgotEmail);
+                            if (ok) {
+                                setMode('LOGIN');
+                            } else {
+                                setError('Không thể gửi yêu cầu. Vui lòng thử lại');
+                            }
+                        } finally {
+                            setLoading(false);
+                        }
+                    }}
+                    className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg shadow-blue-100 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
                     Gửi yêu cầu
                 </button>
             </div>
@@ -314,7 +379,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
         <div className="space-y-6 pt-4">
             {renderHeader('Xác thực OTP')}
             <p className="text-center text-gray-600">
-                Mã xác thực đã được gửi tới email <b>{email}</b>. Nhập <b>123456</b> để test.
+                Mã xác thực đã được gửi tới email <b>{email}</b>.
             </p>
             <div className="flex justify-center gap-3">
                 {otp.map((data, index) => (
@@ -336,7 +401,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
                 ))}
             </div>
             {otpError && (
-                <p className="text-center text-red-500 text-sm font-bold animate-shake">Mã OTP không chính xác. Thử lại với 123456</p>
+                <p className="text-center text-red-500 text-sm font-bold animate-shake">Mã OTP không chính xác.</p>
             )}
             {otpSuccess && (
                 <p className="text-center text-green-500 text-sm font-bold">Xác thực thành công! Đang hoàn tất đăng ký...</p>
@@ -356,9 +421,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
             </div>
             <button
                 onClick={handleFinalRegister}
-                disabled={!otpSuccess || loading}
+                disabled={otp.join('').length !== 6 || loading}
                 className={`w-full font-bold py-4 rounded-xl transition-all shadow-md mt-4 flex items-center justify-center gap-2
-                    ${otpSuccess ? 'bg-[#A32323] hover:bg-[#8B1E1E] text-white cursor-pointer shadow-red-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                    ${otp.join('').length === 6 ? 'bg-[#A32323] hover:bg-[#8B1E1E] text-white cursor-pointer shadow-red-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
             >
                 {loading && <Loader2 size={20} className="animate-spin" />}
                 Xác nhận & Đăng ký

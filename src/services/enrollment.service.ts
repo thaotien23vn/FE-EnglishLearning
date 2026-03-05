@@ -1,0 +1,54 @@
+import { apiRequest } from "./api";
+import type { BackendCourseListItem } from "./course.service";
+
+export type BackendEnrollment = {
+  id: string | number;
+  userId: string | number;
+  courseId: string | number;
+  status: string;
+  progressPercent: number;
+  enrolledAt?: string;
+  Course?: BackendCourseListItem;
+};
+
+export const enrollmentService = {
+  async listMyEnrollments(): Promise<BackendEnrollment[]> {
+    const data = await apiRequest<{ enrollments: BackendEnrollment[] }>(
+      "student/enrollments",
+      {
+        method: "GET",
+      },
+    );
+
+    return data.enrollments;
+  },
+
+  async enroll(courseId: string): Promise<BackendEnrollment> {
+    const data = await apiRequest<{ enrollment: BackendEnrollment }>(
+      `student/courses/${courseId}/enroll`,
+      {
+        method: "POST",
+      },
+    );
+
+    return data.enrollment;
+  },
+
+  async unenroll(courseId: string): Promise<void> {
+    await apiRequest<unknown>(`student/courses/${courseId}/enroll`, {
+      method: "DELETE",
+    });
+  },
+
+  async updateProgress(courseId: string, progressPercent: number): Promise<BackendEnrollment> {
+    const data = await apiRequest<{ enrollment: BackendEnrollment }>(
+      `student/progress/${courseId}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ progressPercent }),
+      },
+    );
+
+    return data.enrollment;
+  },
+};

@@ -1,42 +1,99 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     Users, Search, Filter, Mail,
     MoreVertical, Download, CheckCircle2,
     Clock, AlertCircle, GraduationCap,
     ChevronRight, BarChart2
 } from 'lucide-react';
-import { useCourseStore } from '../../store/useCourseStore';
 import { useAuth } from '../../context/AuthContext';
+import { teacherService, type BackendCourseEnrollment, type BackendTeacherCourse } from '../../services/teacher.service';
 
 const StudentManagement: React.FC = () => {
-    const { courses } = useCourseStore();
-    const { user } = useAuth();
+    useAuth();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
 
-    const teacherCourses = useMemo(() => {
-        return courses.filter(c => c.teacher === user?.fullName);
-    }, [courses, user]);
+    const [courses, setCourses] = useState<BackendTeacherCourse[]>([]);
+    const [enrollments, setEnrollments] = useState<BackendCourseEnrollment[]>([]);
 
-    // Mock student data for the demo
-    const mockStudents = useMemo(() => [
-        { id: 'st1', name: 'Nguyễn Văn Nam', email: 'nam.nv@gmail.com', courseId: '1', progress: 85, lastActive: '10 phút trước', joiningDate: '12/01/2024', status: 'active' },
-        { id: 'st2', name: 'Trần Thị Mai', email: 'mai.tt@yahoo.com', courseId: '1', progress: 45, lastActive: '2 giờ trước', joiningDate: '15/01/2024', status: 'active' },
-        { id: 'st3', name: 'Lê Hoàng Long', email: 'long.lh@outlook.com', courseId: '3', progress: 100, lastActive: '1 ngày trước', joiningDate: '01/02/2024', status: 'completed' },
-        { id: 'st4', name: 'Phạm Minh Đức', email: 'duc.pm@gmail.com', courseId: '4', progress: 12, lastActive: '5 ngày trước', joiningDate: '20/02/2024', status: 'inactive' },
-        { id: 'st5', name: 'Hoàng Công Vinh', email: 'vinh.hc@gmail.com', courseId: '1', progress: 65, lastActive: '30 phút trước', joiningDate: '25/01/2024', status: 'active' },
-    ], []);
+    useEffect(() => {
+        const loadCourses = async () => {
+            try {
+                const myCourses = await teacherService.listMyCourses();
+                setCourses(myCourses);
+            } finally {
+            }
+        };
+
+        loadCourses();
+    }, []);
+
+    useEffect(() => {
+        const loadEnrollments = async () => {
+            try {
+                if (selectedCourseId === 'all') {
+                    const all = await Promise.all(
+                        courses.map(async (c) => {
+                            return teacherService.getCourseEnrollments(String(c.id));
+                        }),
+                    );
+                    setEnrollments(all.flat());
+                    return;
+                }
+
+                const list = await teacherService.getCourseEnrollments(selectedCourseId);
+                setEnrollments(list);
+            } finally {
+            }
+        };
+
+        if (courses.length === 0) {
+            setEnrollments([]);
+            return;
+        }
+
+        loadEnrollments();
+    }, [courses, selectedCourseId]);
+
+    const teacherCourses = useMemo(() => courses, [courses]);
 
     const filteredStudents = useMemo(() => {
-        return mockStudents.filter(student => {
-            const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                student.email.toLowerCase().includes(searchTerm.toLowerCase());
-            const matchesCourse = selectedCourseId === 'all' || student.courseId === selectedCourseId;
-            return matchesSearch && matchesCourse;
-        });
-    }, [mockStudents, searchTerm, selectedCourseId]);
+        return enrollments
+            .map((en) => {
+                const name = en.User?.name || en.User?.username || 'Học viên';
+                const email = en.User?.email || '';
+                const progress = Number(en.progressPercent ?? 0);
+                const status = progress >= 100 ? 'completed' : 'active';
+                return {
+                    id: String(en.id),
+                    name,
+                    email,
+                    courseId: String(en.courseId),
+                    progress,
+                    lastActive: '-',
+                    joiningDate: en.enrolledAt ? new Date(en.enrolledAt).toLocaleDateString('vi-VN') : '-',
+                    status,
+                };
+            })
+            .filter(student => {
+                const matchesSearch = student.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    student.email.toLowerCase().includes(searchTerm.toLowerCase());
+                const matchesCourse = selectedCourseId === 'all' || student.courseId === selectedCourseId;
+                return matchesSearch && matchesCourse;
+            });
+    }, [enrollments, searchTerm, selectedCourseId]);
 
-    const getCourseTitle = (id: string) => courses.find(c => c.id === id)?.title || 'Khóa học không xác định';
+    const getCourseTitle = (id: string) => courses.find(c => String(c.id) === id)?.title || 'Khóa học không xác định';
+
+    const stats = useMemo(() => {
+        const total = filteredStudents.length;
+        const completed = filteredStudents.filter(s => s.progress >= 100).length;
+        const avgProgress = total > 0
+            ? Math.round((filteredStudents.reduce((acc, s) => acc + (s.progress || 0), 0) / total) * 10) / 10
+            : 0;
+
+        return { total, completed, avgProgress };
+    }, [filteredStudents]);
 
     return (
         <div className="w-full pb-20 px-2 lg:px-6">
@@ -101,7 +158,7 @@ const StudentManagement: React.FC = () => {
                             <GraduationCap size={160} />
                         </div>
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Đang học</p>
-                        <h3 className="text-4xl font-black text-gray-900 tracking-tighter">1,250</h3>
+                        <h3 className="text-4xl font-black text-gray-900 tracking-tighter">{stats.total}</h3>
                         <p className="text-[10px] font-bold text-emerald-500 mt-2 flex items-center gap-1">
                             <ChevronRight size={10} className="rotate-270" /> +12% so với tháng trước
                         </p>
@@ -111,7 +168,7 @@ const StudentManagement: React.FC = () => {
                             <CheckCircle2 size={160} />
                         </div>
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Hoàn thành khóa học</p>
-                        <h3 className="text-4xl font-black text-gray-900 tracking-tighter">342</h3>
+                        <h3 className="text-4xl font-black text-gray-900 tracking-tighter">{stats.completed}</h3>
                         <p className="text-[10px] font-bold text-emerald-500 mt-2 flex items-center gap-1">
                             Tăng trưởng ổn định
                         </p>
@@ -121,9 +178,9 @@ const StudentManagement: React.FC = () => {
                             <BarChart2 size={160} />
                         </div>
                         <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Tỉ lệ tương tác</p>
-                        <h3 className="text-4xl font-black text-gray-900 tracking-tighter">78%</h3>
+                        <h3 className="text-4xl font-black text-gray-900 tracking-tighter">{stats.avgProgress}%</h3>
                         <div className="w-full bg-gray-100 h-1.5 rounded-full mt-4 overflow-hidden">
-                            <div className="bg-amber-500 h-full w-[78%]"></div>
+                            <div className="bg-amber-500 h-full" style={{ width: `${Math.min(100, Math.max(0, stats.avgProgress))}%` }}></div>
                         </div>
                     </div>
                 </div>

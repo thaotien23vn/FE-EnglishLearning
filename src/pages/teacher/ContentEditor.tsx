@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Plus, Trash2, Edit3, GripVertical,
@@ -7,21 +7,88 @@ import {
     FileText, Image as ImageIcon, Link as LinkIcon,
     File as FileIcon, X, Eye, EyeOff
 } from 'lucide-react';
-import { useCourseStore } from '../../store/useCourseStore';
 import { type CurriculumModule, type Lesson, type LessonAttachment } from '../../config/mock-data';
 import toast from 'react-hot-toast';
+import { teacherService, type BackendTeacherChapter, type BackendTeacherLecture } from '../../services/teacher.service';
 
 const ContentEditor: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
-    const { courses, updateCourse } = useCourseStore();
-
-    const course = useMemo(() => courses.find(c => c.id === id), [courses, id]);
-    const [curriculum, setCurriculum] = useState<CurriculumModule[]>(course?.curriculum || []);
-    const [expandedModules, setExpandedModules] = useState<string[]>(course?.curriculum.map(m => m.id) || []);
+    const [courseTitle, setCourseTitle] = useState<string>('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [curriculum, setCurriculum] = useState<CurriculumModule[]>([]);
+    const [expandedModules, setExpandedModules] = useState<string[]>([]);
     const [editingLesson, setEditingLesson] = useState<{ mIdx: number, lIdx: number } | null>(null);
+    const [isUploading, setIsUploading] = useState(false);
 
-    if (!course) return null;
+    const mapBackendLectureToLesson = (lecture: BackendTeacherLecture): Lesson => {
+        const sec = Number(lecture.duration ?? 0);
+        const m = Math.floor(sec / 60);
+        const s = sec % 60;
+        const duration = sec > 0 ? `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}` : '00:00';
+
+        return {
+            id: String(lecture.id),
+            title: lecture.title,
+            duration,
+            isPreview: false,
+            attachments: [],
+            videoUrl: lecture.contentUrl || '',
+            type: lecture.type,
+        } as any;
+    };
+
+    const mapBackendChapterToModule = (chapter: BackendTeacherChapter): CurriculumModule => {
+        return {
+            id: String(chapter.id),
+            title: chapter.title,
+            lessons: (chapter.Lectures || []).map(mapBackendLectureToLesson),
+        } as any;
+    };
+
+    const parseDurationToSeconds = (duration: string | undefined): number | undefined => {
+        if (!duration) return undefined;
+        const d = String(duration).trim();
+        const m = d.match(/^(\d{1,2}):(\d{1,2})$/);
+        if (m) {
+            const mm = Number(m[1]);
+            const ss = Number(m[2]);
+            if (!Number.isFinite(mm) || !Number.isFinite(ss)) return undefined;
+            return mm * 60 + ss;
+        }
+        const onlyNumber = Number(d);
+        if (Number.isFinite(onlyNumber)) return onlyNumber;
+        return undefined;
+    };
+
+    const guessLectureTypeFromFile = (file: File): string => {
+        const mime = String(file.type || '').toLowerCase();
+        if (mime.startsWith('video/')) return 'video';
+        if (mime.startsWith('audio/')) return 'audio';
+        if (mime === 'application/pdf') return 'pdf';
+        return 'file';
+    };
+
+    useEffect(() => {
+        const load = async () => {
+            if (!id) return;
+            try {
+                setIsLoading(true);
+                const data = await teacherService.getCourseContent(String(id));
+                setCourseTitle(String((data as any)?.course?.title || ''));
+                const modules = (data.chapters || []).map(mapBackendChapterToModule);
+                setCurriculum(modules);
+                setExpandedModules(modules.map((m) => m.id));
+            } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Không thể tải nội dung khóa học');
+                navigate('/teacher/dashboard');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        load();
+    }, [id]);
 
     const toggleModule = (moduleId: string) => {
         setExpandedModules(prev =>
@@ -32,34 +99,95 @@ const ContentEditor: React.FC = () => {
     };
 
     const addModule = () => {
-        const newModule: CurriculumModule = {
-            id: `m${Date.now()}`,
-            title: `Chương ${curriculum.length + 1}: [Tiêu đề chương]`,
-            lessons: []
+        const run = async () => {
+            if (!id) return;
+            try {
+                const chapter = await teacherService.createChapter({
+                    courseId: String(id),
+                    title: `Chương ${curriculum.length + 1}: [Tiêu đề chương]`,
+                    order: curriculum.length,
+                });
+                const newModule = mapBackendChapterToModule({ ...chapter, Lectures: [] });
+                setCurriculum((prev) => [...prev, newModule]);
+                setExpandedModules((prev) => [...prev, newModule.id]);
+            } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Tạo chương thất bại');
+            }
         };
-        setCurriculum([...curriculum, newModule]);
-        setExpandedModules([...expandedModules, newModule.id]);
+
+        run();
     };
 
     const addLesson = (mIdx: number) => {
-        const newLesson: Lesson = {
-            id: `l${Date.now()}`,
-            title: 'Bài học mới',
-            duration: '05:00',
-            isPreview: false,
-            attachments: []
+        const run = async () => {
+            const module = curriculum[mIdx];
+            if (!module) return;
+
+            try {
+                const lecture = await teacherService.createLecture({
+                    chapterId: String(module.id),
+                    title: 'Bài học mới',
+                    type: 'video',
+                    duration: parseDurationToSeconds('05:00'),
+                    order: module.lessons.length,
+                });
+
+                const newLesson = mapBackendLectureToLesson(lecture);
+                setCurriculum((prev) => {
+                    const next = [...prev];
+                    next[mIdx] = { ...next[mIdx], lessons: [...next[mIdx].lessons, newLesson] } as any;
+                    return next;
+                });
+
+                setEditingLesson({ mIdx, lIdx: module.lessons.length });
+            } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Tạo bài giảng thất bại');
+            }
         };
 
-        const newCurriculum = [...curriculum];
-        newCurriculum[mIdx].lessons.push(newLesson);
-        setCurriculum(newCurriculum);
-        setEditingLesson({ mIdx, lIdx: newCurriculum[mIdx].lessons.length - 1 });
+        run();
     };
 
     const handleSave = () => {
-        updateCourse(course.id, { curriculum });
-        toast.success('Lưu nội dung bài giảng thành công!');
-        navigate('/teacher/dashboard');
+        const run = async () => {
+            try {
+                await Promise.all(
+                    curriculum.map((module, mIdx) =>
+                        teacherService.updateChapter({
+                            chapterId: String(module.id),
+                            title: module.title,
+                            order: mIdx,
+                        }),
+                    ),
+                );
+
+                const lectureUpdates: Promise<unknown>[] = [];
+                for (let mIdx = 0; mIdx < curriculum.length; mIdx += 1) {
+                    const module = curriculum[mIdx];
+                    for (let lIdx = 0; lIdx < (module.lessons || []).length; lIdx += 1) {
+                        const lesson = module.lessons[lIdx];
+                        lectureUpdates.push(
+                            teacherService.updateLecture({
+                                lectureId: String((lesson as any).id),
+                                title: lesson.title,
+                                type: String((lesson as any).type || 'video'),
+                                contentUrl: (lesson as any).videoUrl || undefined,
+                                duration: parseDurationToSeconds(lesson.duration),
+                                order: lIdx,
+                            }),
+                        );
+                    }
+                }
+
+                await Promise.all(lectureUpdates);
+                toast.success('Lưu nội dung bài giảng thành công!');
+                navigate('/teacher/dashboard');
+            } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Lưu nội dung thất bại');
+            }
+        };
+
+        run();
     };
 
     const currentLesson = editingLesson ? curriculum[editingLesson.mIdx].lessons[editingLesson.lIdx] : null;
@@ -72,6 +200,53 @@ const ContentEditor: React.FC = () => {
             ...updates
         };
         setCurriculum(newCurriculum);
+    };
+
+    const uploadLectureFile = async (file: File) => {
+        if (!editingLesson || !currentLesson) return;
+        try {
+            setIsUploading(true);
+            const lectureId = String((currentLesson as any).id);
+            const type = String((currentLesson as any).type || guessLectureTypeFromFile(file));
+            const updated = await teacherService.updateLecture({
+                lectureId,
+                file,
+                type,
+            });
+
+            updateCurrentLesson({
+                videoUrl: updated.contentUrl || '',
+                type: updated.type,
+            } as any);
+
+            toast.success('Upload file thành công');
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Upload file thất bại');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const getYouTubeEmbedUrl = (url: string): string | null => {
+        const u = String(url || '').trim();
+        if (!u) return null;
+        try {
+            const parsed = new URL(u);
+            const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+            if (host === 'youtu.be') {
+                const id = parsed.pathname.split('/').filter(Boolean)[0];
+                return id ? `https://www.youtube.com/embed/${id}` : null;
+            }
+            if (host === 'youtube.com' || host === 'm.youtube.com') {
+                const id = parsed.searchParams.get('v');
+                if (id) return `https://www.youtube.com/embed/${id}`;
+                const parts = parsed.pathname.split('/').filter(Boolean);
+                const idx = parts.findIndex((p) => p === 'embed');
+                if (idx >= 0 && parts[idx + 1]) return `https://www.youtube.com/embed/${parts[idx + 1]}`;
+            }
+        } catch {
+        }
+        return null;
     };
 
     const addAttachment = (type: LessonAttachment['type']) => {
@@ -118,6 +293,9 @@ const ContentEditor: React.FC = () => {
                         <h1 className="text-3xl lg:text-4xl font-black text-gray-900 tracking-tighter italic">
                             Xây dựng <span className="text-amber-600">chương trình học.</span>
                         </h1>
+                        {courseTitle && (
+                            <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-2">{courseTitle}</p>
+                        )}
                     </div>
 
                     <div className="flex items-center gap-4">
@@ -137,6 +315,13 @@ const ContentEditor: React.FC = () => {
                     </div>
                 </div>
 
+                {isLoading ? (
+                    <div className="px-4 lg:px-0">
+                        <div className="bg-white rounded-[40px] border border-gray-100 shadow-sm p-10 text-center">
+                            <p className="text-sm font-bold text-gray-500">Đang tải nội dung khóa học...</p>
+                        </div>
+                    </div>
+                ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start px-4 lg:px-0">
                     {/* Module List (Left Column) */}
                     <div className="lg:col-span-12 xl:col-span-7 space-y-6">
@@ -177,7 +362,17 @@ const ContentEditor: React.FC = () => {
                                     <div className="flex items-center gap-2">
                                         <button
                                             className="p-3 text-gray-300 hover:text-red-500 transition-all hover:bg-red-50 rounded-2xl"
-                                            onClick={() => setCurriculum(curriculum.filter(m => m.id !== module.id))}
+                                            onClick={async () => {
+                                                try {
+                                                    await teacherService.deleteChapter(String(module.id));
+                                                    setCurriculum(curriculum.filter(m => m.id !== module.id));
+                                                    setExpandedModules(expandedModules.filter((x) => x !== module.id));
+                                                    setEditingLesson(null);
+                                                    toast.success('Đã xóa chương');
+                                                } catch (e) {
+                                                    toast.error(e instanceof Error ? e.message : 'Xóa chương thất bại');
+                                                }
+                                            }}
                                             title="Xóa chương này"
                                         >
                                             <Trash2 size={20} />
@@ -222,10 +417,20 @@ const ContentEditor: React.FC = () => {
                                                         className="p-2 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover/lesson:opacity-100"
                                                         onClick={(e) => {
                                                             e.stopPropagation();
-                                                            const newCurr = [...curriculum];
-                                                            newCurr[mIdx].lessons = newCurr[mIdx].lessons.filter(l => l.id !== lesson.id);
-                                                            setCurriculum(newCurr);
-                                                            if (editingLesson?.mIdx === mIdx && editingLesson?.lIdx === lIdx) setEditingLesson(null);
+                                                            const run = async () => {
+                                                                try {
+                                                                    await teacherService.deleteLecture(String(lesson.id));
+                                                                    const newCurr = [...curriculum];
+                                                                    newCurr[mIdx].lessons = newCurr[mIdx].lessons.filter(l => l.id !== lesson.id);
+                                                                    setCurriculum(newCurr);
+                                                                    if (editingLesson?.mIdx === mIdx && editingLesson?.lIdx === lIdx) setEditingLesson(null);
+                                                                    toast.success('Đã xóa bài giảng');
+                                                                } catch (err) {
+                                                                    toast.error(err instanceof Error ? err.message : 'Xóa bài giảng thất bại');
+                                                                }
+                                                            };
+
+                                                            run();
                                                         }}
                                                     >
                                                         <Trash2 size={16} />
@@ -314,6 +519,38 @@ const ContentEditor: React.FC = () => {
                                         </div>
 
                                         <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Loại bài giảng</label>
+                                            <select
+                                                className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 font-bold text-gray-900 transition-all"
+                                                value={String((currentLesson as any).type || 'video')}
+                                                onChange={(e) => updateCurrentLesson({ type: e.target.value } as any)}
+                                            >
+                                                <option value="video">Video</option>
+                                                <option value="audio">Audio</option>
+                                                <option value="pdf">PDF</option>
+                                                <option value="file">File</option>
+                                            </select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Upload từ máy (Video/Audio/PDF/File)</label>
+                                            <input
+                                                type="file"
+                                                disabled={isUploading}
+                                                className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 font-medium text-sm text-gray-600 transition-all"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (!file) return;
+                                                    uploadLectureFile(file);
+                                                    e.currentTarget.value = '';
+                                                }}
+                                            />
+                                            {isUploading && (
+                                                <p className="text-[10px] font-bold text-amber-600 uppercase tracking-widest">Đang upload...</p>
+                                            )}
+                                        </div>
+
+                                        <div className="space-y-2">
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">URL Video Minh họa (YouTube/MP4)</label>
                                             <div className="relative">
                                                 <div className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300">
@@ -326,6 +563,92 @@ const ContentEditor: React.FC = () => {
                                                     placeholder="Dán link video tại đây..."
                                                 />
                                             </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Preview</label>
+                                                {currentLesson.videoUrl ? (
+                                                    <a
+                                                        href={currentLesson.videoUrl}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="text-[10px] font-black uppercase tracking-widest text-amber-600 hover:underline"
+                                                    >
+                                                        Mở link
+                                                    </a>
+                                                ) : null}
+                                            </div>
+
+                                            {(() => {
+                                                const url = String(currentLesson.videoUrl || '').trim();
+                                                const type = String((currentLesson as any).type || 'video');
+                                                if (!url) {
+                                                    return (
+                                                        <div className="p-6 border-2 border-dashed border-gray-100 rounded-[32px] text-center">
+                                                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest leading-relaxed">
+                                                                Chưa có nội dung để preview
+                                                            </p>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                const yt = type === 'video' ? getYouTubeEmbedUrl(url) : null;
+                                                if (yt) {
+                                                    return (
+                                                        <div className="w-full aspect-video bg-black rounded-2xl overflow-hidden border border-gray-100">
+                                                            <iframe
+                                                                src={yt}
+                                                                className="w-full h-full"
+                                                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                                                                allowFullScreen
+                                                            />
+                                                        </div>
+                                                    );
+                                                }
+
+                                                if (type === 'video') {
+                                                    return (
+                                                        <video
+                                                            src={url}
+                                                            controls
+                                                            className="w-full rounded-2xl border border-gray-100 bg-black"
+                                                        />
+                                                    );
+                                                }
+
+                                                if (type === 'audio') {
+                                                    return (
+                                                        <audio
+                                                            src={url}
+                                                            controls
+                                                            className="w-full"
+                                                        />
+                                                    );
+                                                }
+
+                                                if (type === 'pdf') {
+                                                    return (
+                                                        <iframe
+                                                            src={url}
+                                                            className="w-full h-[420px] rounded-2xl border border-gray-100 bg-white"
+                                                        />
+                                                    );
+                                                }
+
+                                                return (
+                                                    <div className="p-5 bg-gray-50 border border-gray-100 rounded-2xl">
+                                                        <a
+                                                            href={url}
+                                                            target="_blank"
+                                                            rel="noreferrer"
+                                                            className="text-sm font-bold text-amber-600 hover:underline break-all"
+                                                        >
+                                                            {url}
+                                                        </a>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                     </div>
 
@@ -430,6 +753,7 @@ const ContentEditor: React.FC = () => {
                         </div>
                     )}
                 </div>
+                )}
             </div>
         </div>
     );

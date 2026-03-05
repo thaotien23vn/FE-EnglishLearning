@@ -1,29 +1,44 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Users, Plus, BookOpen, Clock,
     MoreVertical, Edit3, Trash2, ExternalLink,
     BarChart3, Activity, GraduationCap
 } from 'lucide-react';
-import { useCourseStore } from '../../store/useCourseStore';
 import { useAuth } from '../../context/AuthContext';
+import { teacherService, type BackendTeacherCourse } from '../../services/teacher.service';
 
 const TeacherDashboard: React.FC = () => {
     const navigate = useNavigate();
-    const { courses } = useCourseStore();
     const { user } = useAuth();
 
-    // In a real app, courses would have a teacherId. 
-    // Here we'll filter by teacher name matching user fullName or just show all for demo if needed.
-    // For this LMS demo, let's assume the teacher sees courses where they are the 'teacher'.
-    const teacherCourses = useMemo(() => {
-        return courses.filter(c => c.teacher === user?.fullName);
-    }, [courses, user]);
+    const [courses, setCourses] = useState<BackendTeacherCourse[]>([]);
+    const [studentCounts, setStudentCounts] = useState<Record<string, number>>({});
+
+    useEffect(() => {
+        const load = async () => {
+            const myCourses = await teacherService.listMyCourses();
+            setCourses(myCourses);
+
+            const pairs = await Promise.all(
+                (myCourses || []).map(async (c) => {
+                    const enrollments = await teacherService.getCourseEnrollments(String(c.id));
+                    return [String(c.id), enrollments.length] as const;
+                }),
+            );
+
+            setStudentCounts(Object.fromEntries(pairs));
+        };
+
+        load();
+    }, []);
+
+    const teacherCourses = useMemo(() => courses, [courses]);
 
     const stats = [
         { label: 'Tổng số khóa học', value: teacherCourses.length, icon: BookOpen, color: 'text-blue-600', bg: 'bg-blue-50' },
-        { label: 'Tổng số sinh viên', value: teacherCourses.reduce((acc, c) => acc + c.students, 0).toLocaleString(), icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
-        { label: 'Đánh giá trung bình', value: (teacherCourses.reduce((acc, c) => acc + c.rating, 0) / (teacherCourses.length || 1)).toFixed(1), icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50' },
+        { label: 'Tổng số sinh viên', value: teacherCourses.reduce((acc, c) => acc + (studentCounts[String(c.id)] || 0), 0).toLocaleString(), icon: Users, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+        { label: 'Đánh giá trung bình', value: (0).toFixed(1), icon: Activity, color: 'text-amber-600', bg: 'bg-amber-50' },
         { label: 'Giờ giảng dạy', value: '128+', icon: Clock, color: 'text-purple-600', bg: 'bg-purple-50' },
     ];
 
@@ -88,29 +103,29 @@ const TeacherDashboard: React.FC = () => {
                                         <td className="px-8 py-6">
                                             <div className="flex items-center gap-4">
                                                 <div className="w-16 h-10 rounded-lg overflow-hidden bg-gray-100 shrink-0 shadow-sm">
-                                                    <img src={course.image} alt={course.title} className="w-full h-full object-cover" />
+                                                    <img src={'/elearning-1.jpg'} alt={course.title} className="w-full h-full object-cover" />
                                                 </div>
                                                 <div>
                                                     <h4 className="text-sm font-bold text-gray-900 group-hover:text-amber-600 transition-colors line-clamp-1">{course.title}</h4>
-                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">{course.category}</p>
+                                                    <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">{String(course.categoryId ?? 'Khác')}</p>
                                                 </div>
                                             </div>
                                         </td>
                                         <td className="px-8 py-6">
                                             <span className="bg-emerald-50 text-emerald-600 text-[10px] font-black px-2 py-1 rounded-full uppercase tracking-tighter">
-                                                Đang hoạt động
+                                                {course.published ? 'Đã xuất bản' : 'Bản nháp'}
                                             </span>
                                         </td>
                                         <td className="px-8 py-6">
                                             <div className="flex items-center gap-1.5 text-sm font-bold text-gray-700">
                                                 <Users size={14} className="text-blue-500" />
-                                                {course.students}
+                                                {studentCounts[String(course.id)] || 0}
                                             </div>
                                         </td>
                                         <td className="px-8 py-6">
                                             <div className="flex items-center gap-1.5 text-sm font-bold text-amber-500">
                                                 <Activity size={14} />
-                                                {course.rating}
+                                                0
                                             </div>
                                         </td>
                                         <td className="px-8 py-6 text-right">

@@ -8,10 +8,11 @@ import toast from 'react-hot-toast';
 
 const EnrollmentList: React.FC = () => {
     const navigate = useNavigate();
-    const { enrolledCourses, unenroll, clearEnrollments } = useEnrollmentStore();
+    const { enrolledCourses, unenrollCourse, clearEnrollments, syncEnrollments } = useEnrollmentStore();
 
     useEffect(() => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
+        syncEnrollments();
     }, []);
 
     if (enrolledCourses.length === 0) {
@@ -75,7 +76,7 @@ const EnrollmentList: React.FC = () => {
                                                     {item.title}
                                                 </h3>
                                                 <button
-                                                    onClick={() => unenroll(item.id)}
+                                                    onClick={() => unenrollCourse(item.id)}
                                                     className="text-gray-300 hover:text-red-500 p-2 transition-colors cursor-pointer"
                                                 >
                                                     <Trash2 size={20} />
@@ -98,7 +99,7 @@ const EnrollmentList: React.FC = () => {
                         </div>
 
                         <button
-                            onClick={clearEnrollments}
+                            onClick={() => clearEnrollments()}
                             className="mt-6 text-gray-400 hover:text-red-500 font-bold text-sm transition-colors cursor-pointer flex items-center gap-2 pl-2"
                         >
                             <Trash2 size={16} />

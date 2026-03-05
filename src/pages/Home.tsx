@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Banner from '../components/home/Banner';
 import CourseCard from '../components/home/CourseCard';
@@ -9,7 +9,11 @@ import slideShowLogo from '../config/slide-show';
 const Home: React.FC = () => {
     const navigate = useNavigate();
 
-    const { courses } = useCourseStore();
+    const { courses, loadCourses } = useCourseStore();
+
+    useEffect(() => {
+        loadCourses();
+    }, []);
 
     const featuredCourses = useMemo(() => {
         return [...courses]

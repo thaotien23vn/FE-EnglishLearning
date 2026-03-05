@@ -1,11 +1,16 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { User } from '../config/users-data';
-import { mockUsers } from '../config/users-data';
+import { ApiError, tokenStorage } from '../services/api';
+import { authService } from '../services/auth.service';
+import { useEnrollmentStore } from '../store/useEnrollmentStore';
+import { useCourseStore } from '../store/useCourseStore';
 
 interface AuthContextType {
     user: User | null;
     login: (email: string, password: string) => Promise<boolean>;
     register: (userData: Partial<User>) => Promise<boolean>;
+    verifyEmailCode: (token: string) => Promise<boolean>;
+    forgotPassword: (email: string) => Promise<boolean>;
     updateUser: (userData: Partial<User>) => Promise<boolean>;
     logout: () => void;
     isLoading: boolean;
@@ -16,57 +21,94 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const resetEnrollments = useEnrollmentStore((s) => s.reset);
+    const syncEnrollments = useEnrollmentStore((s) => s.syncEnrollments);
+    useCourseStore();
 
     useEffect(() => {
-        // Mock session check from localStorage
-        const storedUser = localStorage.getItem('elearning_user');
-        if (storedUser) {
-            setUser(JSON.parse(storedUser));
-        }
-        setIsLoading(false);
+        const bootstrap = async () => {
+            try {
+                const token = tokenStorage.get();
+                if (!token) {
+                    setIsLoading(false);
+                    return;
+                }
+
+                const me = await authService.me();
+                setUser(me as unknown as User);
+                localStorage.setItem('elearning_user', JSON.stringify(me));
+            } catch (err) {
+                tokenStorage.clear();
+                localStorage.removeItem('elearning_user');
+                setUser(null);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        bootstrap();
     }, []);
 
+    useEffect(() => {
+        if (!user) return;
+        if (user.role !== 'STUDENT') return;
+        syncEnrollments();
+    }, [user]);
+
     const login = async (email: string, password: string): Promise<boolean> => {
-        // Simulate API call
-        await new Promise(resolve => setTimeout(resolve, 800));
-
-        // Find in mock data or localStorage (simulated registered users)
-        const allUsers = [...mockUsers, ...JSON.parse(localStorage.getItem('registered_users') || '[]')];
-        const foundUser = allUsers.find(u => u.email === email && u.password === password);
-
-        if (foundUser) {
-            const { password: _, ...userWithoutPassword } = foundUser;
-            setUser(userWithoutPassword as User);
-            localStorage.setItem('elearning_user', JSON.stringify(userWithoutPassword));
+        try {
+            const result = await authService.login({ email, password });
+            setUser(result.user as unknown as User);
+            localStorage.setItem('elearning_user', JSON.stringify(result.user));
             return true;
+        } catch (err) {
+            if (err instanceof ApiError && err.status === 403) {
+                throw err;
+            }
+            return false;
         }
-        return false;
     };
 
     const register = async (userData: Partial<User>): Promise<boolean> => {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const email = userData.email || "";
+        const name = userData.fullName || "User";
+        const password = userData.password || "";
+        const username =
+            userData.username ||
+            email.split("@")[0] ||
+            `user_${Date.now()}`;
 
-        const newUser: User = {
-            id: `u${Date.now()}`,
-            fullName: userData.fullName || 'User',
-            email: userData.email || '',
-            password: userData.password,
-            role: userData.role || 'STUDENT',
-            avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.email || Date.now()}`,
-            enrolledCourses: [],
-            ...userData
-        };
+        try {
+            await authService.register({
+                email,
+                name,
+                password,
+                username,
+                phone: userData.phone,
+                role: "student",
+            });
+            return true;
+        } catch (err) {
+            return false;
+        }
+    };
 
-        // Save to mock database in localStorage
-        const existing = JSON.parse(localStorage.getItem('registered_users') || '[]');
-        localStorage.setItem('registered_users', JSON.stringify([...existing, newUser]));
+    const verifyEmailCode = async (token: string): Promise<boolean> => {
+        try {
+            await authService.verifyEmailCode(token);
+            return true;
+        } catch (err) {
+            return false;
+        }
+    };
 
-        // Login automatically
-        const { password: _, ...userWithoutPassword } = newUser;
-        setUser(userWithoutPassword as User);
-        localStorage.setItem('elearning_user', JSON.stringify(userWithoutPassword));
-
-        return true;
+    const forgotPassword = async (email: string): Promise<boolean> => {
+        try {
+            await authService.forgotPassword(email);
+            return true;
+        } catch (err) {
+            return false;
+        }
     };
 
     const updateUser = async (updatedData: Partial<User>): Promise<boolean> => {
@@ -76,23 +118,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(updatedUser);
         localStorage.setItem('elearning_user', JSON.stringify(updatedUser));
 
-        // Update in the "database" of registered users
-        const registeredUsers = JSON.parse(localStorage.getItem('registered_users') || '[]');
-        const updatedRegisteredUsers = registeredUsers.map((u: User) =>
-            u.id === user.id ? { ...u, ...updatedData } : u
-        );
-        localStorage.setItem('registered_users', JSON.stringify(updatedRegisteredUsers));
-
         return true;
     };
 
     const logout = () => {
         setUser(null);
         localStorage.removeItem('elearning_user');
+        authService.logout();
+        resetEnrollments();
+
+        try {
+            localStorage.removeItem('enrollment-storage');
+            localStorage.removeItem('course-storage');
+        } catch {
+        }
     };
 
     return (
-        <AuthContext.Provider value={{ user, login, register, updateUser, logout, isLoading }}>
+        <AuthContext.Provider value={{ user, login, register, verifyEmailCode, forgotPassword, updateUser, logout, isLoading }}>
             {children}
         </AuthContext.Provider>
     );

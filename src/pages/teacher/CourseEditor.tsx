@@ -9,6 +9,7 @@ import { useCourseStore } from '../../store/useCourseStore';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { type Course } from '../../config/mock-data';
+import { teacherService } from '../../services/teacher.service';
 
 const CATEGORIES = [
     'Bứt phá vào 10',
@@ -23,9 +24,10 @@ const CourseEditor: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { user } = useAuth();
-    const { courses, addCourse, updateCourse } = useCourseStore();
+    const { courses } = useCourseStore();
 
     const isEditMode = !!id;
+    const [isSaving, setIsSaving] = useState(false);
     const [formData, setFormData] = useState<Partial<Course>>({
         title: '',
         description: '',
@@ -47,15 +49,33 @@ const CourseEditor: React.FC = () => {
     const [newItem, setNewItem] = useState({ willLearn: '', requirement: '' });
 
     useEffect(() => {
-        if (isEditMode) {
-            const course = courses.find(c => c.id === id);
+        const load = async () => {
+            if (!isEditMode || !id) return;
+
+            const course = courses.find(c => String(c.id) === String(id));
             if (course) {
-                setFormData(course);
-            } else {
-                toast.error('Không tìm thấy khóa học');
+                setFormData(course as any);
+                return;
+            }
+
+            try {
+                const ownerCourse = await teacherService.getCourseForOwner(String(id));
+                setFormData((prev) => ({
+                    ...prev,
+                    title: ownerCourse.title || '',
+                    description: ownerCourse.description || '',
+                    level: (ownerCourse.level as any) || LEVELS[0],
+                    duration: ownerCourse.duration || '',
+                    willLearn: Array.isArray(ownerCourse.willLearn) ? ownerCourse.willLearn : [],
+                    requirements: Array.isArray(ownerCourse.requirements) ? ownerCourse.requirements : [],
+                }));
+            } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Không thể tải khóa học');
                 navigate('/teacher/dashboard');
             }
-        }
+        };
+
+        load();
     }, [id, courses, isEditMode, navigate]);
 
     const handleAddItem = (type: 'willLearn' | 'requirements') => {
@@ -76,27 +96,51 @@ const CourseEditor: React.FC = () => {
         }));
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSubmit = async (e?: React.SyntheticEvent) => {
+        e?.preventDefault();
 
         if (!formData.title || !formData.description) {
             toast.error('Vui lòng điền đầy đủ thông tin bắt buộc');
             return;
         }
 
-        if (isEditMode && id) {
-            updateCourse(id, formData);
-            toast.success('Cập nhật khóa học thành công!');
-        } else {
-            const newCourse: Course = {
-                ...formData as Course,
-                id: `c${Date.now()}`,
-            };
-            addCourse(newCourse);
-            toast.success('Tạo khóa học thành công!');
-        }
+        try {
+            setIsSaving(true);
+            if (isEditMode && id) {
+                await teacherService.updateCourse(String(id), {
+                    title: String(formData.title),
+                    description: String(formData.description),
+                    level: String(formData.level || LEVELS[0]),
+                    duration: String(formData.duration || ''),
+                    willLearn: Array.isArray(formData.willLearn) ? formData.willLearn : [],
+                    requirements: Array.isArray(formData.requirements) ? formData.requirements : [],
+                    published: true,
+                });
+                toast.success('Cập nhật khóa học thành công!');
+                navigate(`/teacher/content-editor/${encodeURIComponent(String(id))}`);
+                return;
+            }
 
-        navigate('/teacher/dashboard');
+            const created = await teacherService.createCourse({
+                title: String(formData.title),
+                description: String(formData.description),
+                level: String(formData.level || LEVELS[0]),
+                duration: String(formData.duration || ''),
+                willLearn: Array.isArray(formData.willLearn) ? formData.willLearn : [],
+                requirements: Array.isArray(formData.requirements) ? formData.requirements : [],
+                published: true,
+                price: 0,
+                categoryId: null,
+                tags: [],
+            });
+
+            toast.success('Tạo khóa học thành công!');
+            navigate(`/teacher/content-editor/${encodeURIComponent(String(created.id))}`);
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Lưu khóa học thất bại');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -124,6 +168,7 @@ const CourseEditor: React.FC = () => {
                         </button>
                         <button
                             onClick={handleSubmit}
+                            disabled={isSaving}
                             className="flex items-center gap-2 bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-amber-600 transition-all shadow-xl shadow-gray-200 active:scale-95 cursor-pointer"
                         >
                             <Save size={18} />
