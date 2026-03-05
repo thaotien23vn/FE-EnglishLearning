@@ -15,8 +15,16 @@ import TeacherDashboard from './pages/teacher/Dashboard';
 import StudentManagement from './pages/teacher/StudentManagement';
 import QuizManagement from './pages/teacher/QuizManagement';
 import TeacherLayout from './components/layout/TeacherLayout';
+import AdminLayout from './components/layout/AdminLayout';
 import CourseEditor from './pages/teacher/CourseEditor';
 import ContentEditor from './pages/teacher/ContentEditor';
+import TeacherCourses from './pages/teacher/TeacherCourses';
+import AdminDashboard from './pages/admin/AdminDashboard';
+import AdminUsers from './pages/admin/AdminUsers';
+import AdminCourses from './pages/admin/AdminCourses';
+import AdminPayments from './pages/admin/AdminPayments';
+import AdminReviews from './pages/admin/AdminReviews';
+import AdminCategories from './pages/admin/AdminCategories';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import { Toaster } from 'react-hot-toast';
 import { AuthProvider } from './context/AuthContext';
@@ -96,7 +104,7 @@ function App() {
           <Route
             path="/teacher"
             element={
-              <ProtectedRoute allowedRoles={['TEACHER', 'ADMIN']}>
+              <ProtectedRoute allowedRoles={['TEACHER']}>
                 <TeacherLayout />
               </ProtectedRoute>
             }
@@ -105,10 +113,28 @@ function App() {
             <Route path="dashboard" element={<TeacherDashboard />} />
             <Route path="students" element={<StudentManagement />} />
             <Route path="quizzes" element={<QuizManagement />} />
-            <Route path="courses" element={<TeacherDashboard />} />
+            <Route path="courses" element={<TeacherCourses />} />
             <Route path="create-course" element={<CourseEditor />} />
             <Route path="edit-course/:id" element={<CourseEditor />} />
             <Route path="content-editor/:id" element={<ContentEditor />} />
+          </Route>
+
+          {/* Admin Routes */}
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute allowedRoles={['ADMIN']}>
+                <AdminLayout />
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<AdminDashboard />} />
+            <Route path="dashboard" element={<AdminDashboard />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="courses" element={<AdminCourses />} />
+            <Route path="payments" element={<AdminPayments />} />
+            <Route path="reviews" element={<AdminReviews />} />
+            <Route path="categories" element={<AdminCategories />} />
           </Route>
         </Routes>
 

@@ -212,7 +212,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                                                     </button>
                                                     {(user.role === 'TEACHER' || user.role === 'ADMIN') && (
                                                         <button
-                                                            onClick={() => navigate('/teacher/dashboard')}
+                                                            onClick={() => navigate(user.role === 'ADMIN' ? '/admin/dashboard' : '/teacher/dashboard')}
                                                             className="w-full cursor-pointer group/item flex items-center gap-3 px-4 py-3 text-sm text-amber-600 bg-amber-50/50 hover:bg-amber-50 rounded-xl transition-all duration-300"
                                                         >
                                                             <div className="p-2 bg-white rounded-lg">
@@ -231,7 +231,10 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                                                     </button>
                                                     <div className="h-px bg-gray-50 my-2 mx-4"></div>
                                                     <button
-                                                        onClick={logout}
+                                                        onClick={() => {
+                                                            logout();
+                                                            navigate('/');
+                                                        }}
                                                         className="w-full cursor-pointer flex items-center gap-3 px-4 py-3 text-sm text-red-500 hover:bg-red-50 rounded-xl transition-all duration-300"
                                                     >
                                                         <div className="p-2 bg-red-50 group-hover:bg-white rounded-lg transition-colors">

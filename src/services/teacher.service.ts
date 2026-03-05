@@ -51,6 +51,68 @@ export type BackendTeacherChapter = {
   updatedAt?: string;
 };
 
+export type BackendTeacherQuestion = {
+  id: string | number;
+  quizId: string | number;
+  type: 'multiple_choice' | 'true_false' | 'short_answer' | 'essay';
+  content: string;
+  options?: any;
+  correctAnswer?: any;
+  points?: number;
+  explanation?: string | null;
+  order?: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type BackendTeacherQuiz = {
+  id: string | number;
+  courseId: string | number;
+  title: string;
+  description?: string | null;
+  maxScore?: number;
+  timeLimit?: number;
+  passingScore?: number;
+  createdBy?: string | number;
+  createdAt?: string;
+  updatedAt?: string;
+  questions?: BackendTeacherQuestion[];
+};
+
+export type BackendTeacherQuizDetail = BackendTeacherQuiz & {
+  course?: {
+    id: string | number;
+    title: string;
+    createdBy?: string | number;
+  };
+};
+
+export type CreateTeacherQuizInput = {
+  title: string;
+  description?: string;
+  maxScore?: number;
+  timeLimit?: number;
+  passingScore?: number;
+};
+
+export type CreateTeacherQuestionInput = {
+  type: BackendTeacherQuestion['type'];
+  content: string;
+  options?: any;
+  correctAnswer?: any;
+  points?: number;
+  explanation?: string;
+};
+
+export type UpdateTeacherQuestionInput = Partial<CreateTeacherQuestionInput>;
+
+export type UploadQuizMediaResponse = {
+  url: string;
+  bytes?: number;
+  format?: string;
+  publicId?: string;
+};
+
 export type TeacherCourseContentResponse = {
   course: BackendTeacherCourse;
   chapters: BackendTeacherChapter[];
@@ -78,6 +140,7 @@ export type BackendOwnerCourse = {
 export type CreateTeacherCourseInput = {
   title: string;
   description?: string;
+  imageUrl?: string;
   price?: number;
   categoryId?: number | null;
   published?: boolean;
@@ -122,6 +185,7 @@ export const teacherService = {
       body: JSON.stringify({
         title: input.title,
         description: input.description,
+        imageUrl: input.imageUrl,
         price: input.price ?? 0,
         categoryId: input.categoryId ?? null,
         published: Boolean(input.published),
@@ -142,6 +206,7 @@ export const teacherService = {
       body: JSON.stringify({
         title: input.title,
         description: input.description,
+        imageUrl: input.imageUrl,
         price: input.price,
         categoryId: input.categoryId,
         published: input.published,
@@ -156,9 +221,82 @@ export const teacherService = {
     return data.course;
   },
 
+  async deleteCourse(courseId: string): Promise<void> {
+    await apiRequest<unknown>(`teacher/courses/${courseId}`, {
+      method: "DELETE",
+    });
+  },
+
   async getCourseContent(courseId: string): Promise<TeacherCourseContentResponse> {
     const data = await apiRequest<TeacherCourseContentResponse>(`teacher/courses/${courseId}/chapters`, {
       method: "GET",
+    });
+
+    return data;
+  },
+
+  async getCourseQuizzes(courseId: string): Promise<BackendTeacherQuiz[]> {
+    const data = await apiRequest<{ quizzes: BackendTeacherQuiz[] }>(`teacher/courses/${courseId}/quizzes`, {
+      method: 'GET',
+    });
+
+    return data.quizzes || [];
+  },
+
+  async createQuiz(courseId: string, input: CreateTeacherQuizInput): Promise<BackendTeacherQuiz> {
+    const data = await apiRequest<{ quiz: BackendTeacherQuiz }>(`teacher/courses/${courseId}/quizzes`, {
+      method: 'POST',
+      body: JSON.stringify({
+        title: input.title,
+        description: input.description,
+        maxScore: input.maxScore,
+        timeLimit: input.timeLimit,
+        passingScore: input.passingScore,
+      }),
+    });
+
+    return data.quiz;
+  },
+
+  async getQuiz(quizId: string): Promise<BackendTeacherQuizDetail> {
+    const data = await apiRequest<{ quiz: BackendTeacherQuizDetail }>(`teacher/quizzes/${quizId}`, {
+      method: 'GET',
+    });
+
+    return data.quiz;
+  },
+
+  async addQuestion(quizId: string, input: CreateTeacherQuestionInput): Promise<BackendTeacherQuestion> {
+    const data = await apiRequest<{ question: BackendTeacherQuestion }>(`teacher/quizzes/${quizId}/questions`, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    });
+
+    return data.question;
+  },
+
+  async updateQuestion(questionId: string, input: UpdateTeacherQuestionInput): Promise<BackendTeacherQuestion> {
+    const data = await apiRequest<{ question: BackendTeacherQuestion }>(`teacher/questions/${questionId}`, {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    });
+
+    return data.question;
+  },
+
+  async deleteQuestion(questionId: string): Promise<void> {
+    await apiRequest<unknown>(`teacher/questions/${questionId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async uploadQuizMedia(file: File): Promise<UploadQuizMediaResponse> {
+    const form = new FormData();
+    form.set('file', file);
+
+    const data = await apiRequest<UploadQuizMediaResponse>(`teacher/media/quiz`, {
+      method: 'POST',
+      body: form,
     });
 
     return data;

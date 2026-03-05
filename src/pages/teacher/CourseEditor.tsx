@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { type Course } from '../../config/mock-data';
 import { teacherService } from '../../services/teacher.service';
+import { categoryService, type BackendCategory } from '../../services/category.service';
 
 const CATEGORIES = [
     'Bứt phá vào 10',
@@ -28,6 +29,9 @@ const CourseEditor: React.FC = () => {
 
     const isEditMode = !!id;
     const [isSaving, setIsSaving] = useState(false);
+    const [isThumbUploading, setIsThumbUploading] = useState(false);
+    const [categories, setCategories] = useState<BackendCategory[]>([]);
+    const [visibility, setVisibility] = useState<'draft' | 'published' | 'private'>('draft');
     const [formData, setFormData] = useState<Partial<Course>>({
         title: '',
         description: '',
@@ -49,6 +53,26 @@ const CourseEditor: React.FC = () => {
     const [newItem, setNewItem] = useState({ willLearn: '', requirement: '' });
 
     useEffect(() => {
+        const loadCategories = async () => {
+            try {
+                const list = await categoryService.listCategories();
+                setCategories(list || []);
+
+                if (list?.length && !(formData as any).categoryId) {
+                    setFormData((prev) => ({
+                        ...prev,
+                        categoryId: list[0].id,
+                    }));
+                }
+            } catch (e) {
+                setCategories([]);
+            }
+        };
+
+        loadCategories();
+    }, []);
+
+    useEffect(() => {
         const load = async () => {
             if (!isEditMode || !id) return;
 
@@ -64,11 +88,14 @@ const CourseEditor: React.FC = () => {
                     ...prev,
                     title: ownerCourse.title || '',
                     description: ownerCourse.description || '',
+                    image: ownerCourse.imageUrl || prev.image,
                     level: (ownerCourse.level as any) || LEVELS[0],
                     duration: ownerCourse.duration || '',
                     willLearn: Array.isArray(ownerCourse.willLearn) ? ownerCourse.willLearn : [],
                     requirements: Array.isArray(ownerCourse.requirements) ? ownerCourse.requirements : [],
                 }));
+
+                setVisibility(ownerCourse.published ? 'published' : 'draft');
             } catch (e) {
                 toast.error(e instanceof Error ? e.message : 'Không thể tải khóa học');
                 navigate('/teacher/dashboard');
@@ -106,6 +133,7 @@ const CourseEditor: React.FC = () => {
 
         try {
             setIsSaving(true);
+            const published = visibility === 'published';
             if (isEditMode && id) {
                 await teacherService.updateCourse(String(id), {
                     title: String(formData.title),
@@ -114,7 +142,9 @@ const CourseEditor: React.FC = () => {
                     duration: String(formData.duration || ''),
                     willLearn: Array.isArray(formData.willLearn) ? formData.willLearn : [],
                     requirements: Array.isArray(formData.requirements) ? formData.requirements : [],
-                    published: true,
+                    published,
+                    categoryId: (formData as any).categoryId ?? null,
+                    imageUrl: String(formData.image || ''),
                 });
                 toast.success('Cập nhật khóa học thành công!');
                 navigate(`/teacher/content-editor/${encodeURIComponent(String(id))}`);
@@ -124,13 +154,14 @@ const CourseEditor: React.FC = () => {
             const created = await teacherService.createCourse({
                 title: String(formData.title),
                 description: String(formData.description),
+                imageUrl: String(formData.image || ''),
                 level: String(formData.level || LEVELS[0]),
                 duration: String(formData.duration || ''),
                 willLearn: Array.isArray(formData.willLearn) ? formData.willLearn : [],
                 requirements: Array.isArray(formData.requirements) ? formData.requirements : [],
-                published: true,
+                published,
                 price: 0,
-                categoryId: null,
+                categoryId: (formData as any).categoryId ?? null,
                 tags: [],
             });
 
@@ -172,7 +203,7 @@ const CourseEditor: React.FC = () => {
                             className="flex items-center gap-2 bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-amber-600 transition-all shadow-xl shadow-gray-200 active:scale-95 cursor-pointer"
                         >
                             <Save size={18} />
-                            {isEditMode ? 'Cập nhật thay đổi' : 'Công khai khóa học'}
+                            {isEditMode ? 'Cập nhật thay đổi' : visibility === 'published' ? 'Công khai khóa học' : 'Lưu khóa học'}
                         </button>
                     </div>
                 </div>
@@ -322,6 +353,41 @@ const CourseEditor: React.FC = () => {
                                         <span className="text-white text-[10px] font-black uppercase tracking-widest">Preview Mode</span>
                                     </div>
                                 </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <label className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest cursor-pointer transition-all ${isThumbUploading ? 'bg-amber-100 text-amber-700' : 'bg-gray-900 text-white hover:bg-amber-600'}`}>
+                                        {isThumbUploading ? 'Đang upload...' : 'Chọn ảnh từ máy'}
+                                        <input
+                                            type="file"
+                                            accept="image/png,image/jpeg"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const f = e.target.files?.[0];
+                                                e.target.value = '';
+                                                if (!f) return;
+
+                                                try {
+                                                    setIsThumbUploading(true);
+                                                    const res = await teacherService.uploadQuizMedia(f);
+                                                    setFormData((prev) => ({ ...prev, image: res.url }));
+                                                    toast.success('Đã upload ảnh minh họa');
+                                                } catch (err: any) {
+                                                    toast.error(err?.message || 'Upload ảnh thất bại');
+                                                } finally {
+                                                    setIsThumbUploading(false);
+                                                }
+                                            }}
+                                        />
+                                    </label>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormData((prev) => ({ ...prev, image: '' }))}
+                                        className="w-full px-4 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest bg-gray-50 text-gray-600 hover:bg-gray-100 transition-all"
+                                    >
+                                        Xóa URL
+                                    </button>
+                                </div>
                                 <div className="space-y-2">
                                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">URL Hình ảnh</label>
                                     <input
@@ -345,13 +411,36 @@ const CourseEditor: React.FC = () => {
                                     </div>
                                     <select
                                         className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 transition-all font-black text-xs text-gray-900 cursor-pointer appearance-none uppercase tracking-wider"
-                                        value={formData.category}
-                                        onChange={e => setFormData({ ...formData, category: e.target.value })}
+                                        value={String((formData as any).categoryId ?? '')}
+                                        onChange={e => setFormData({ ...formData, categoryId: Number(e.target.value) } as any)}
                                     >
-                                        {CATEGORIES.map(cat => (
-                                            <option key={cat} value={cat}>{cat}</option>
-                                        ))}
+                                        {categories.length > 0 ? categories.map((cat) => (
+                                            <option key={String(cat.id)} value={String(cat.id)}>{cat.name}</option>
+                                        )) : (
+                                            <option value="">Không có danh mục</option>
+                                        )}
                                     </select>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                        <Layout size={12} className="text-amber-500" />
+                                        Trạng thái hiển thị
+                                    </div>
+                                    <select
+                                        className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 transition-all font-black text-xs text-gray-900 cursor-pointer appearance-none uppercase tracking-wider"
+                                        value={visibility}
+                                        onChange={(e) => setVisibility(e.target.value as any)}
+                                    >
+                                        <option value="draft">Nháp</option>
+                                        <option value="published">Công khai</option>
+                                        <option value="private">Không công khai</option>
+                                    </select>
+                                    {visibility === 'private' && (
+                                        <div className="text-xs font-bold text-gray-400">
+                                            Hiện backend mới có trường "published". Tùy chọn "Không công khai" sẽ được lưu tương đương "Nháp".
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="space-y-2">

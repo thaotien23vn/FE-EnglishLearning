@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard,
     BookOpen,
@@ -14,7 +14,14 @@ import { useAuth } from '../../context/AuthContext';
 
 const TeacherLayout: React.FC = () => {
     const { user, logout } = useAuth();
+    const navigate = useNavigate();
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+    useEffect(() => {
+        if (!user) {
+            navigate('/');
+        }
+    }, [user, navigate]);
 
     const menuItems = [
         { label: 'Thống kê chính', path: '/teacher/dashboard', icon: LayoutDashboard },
@@ -89,7 +96,10 @@ const TeacherLayout: React.FC = () => {
                     </div>
 
                     <button
-                        onClick={() => logout()}
+                        onClick={() => {
+                            logout();
+                            navigate('/');
+                        }}
                         className="w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-sm font-black uppercase tracking-widest transition-all text-red-400 hover:bg-red-500/10"
                     >
                         <LogOut size={18} />

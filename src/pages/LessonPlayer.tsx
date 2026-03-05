@@ -79,10 +79,9 @@ const LessonPlayer: React.FC = () => {
         return Math.min(100, Math.max(0, Math.round(((currentIdx + 1) / allLessons.length) * 100)));
     }, [allLessons.length, currentIdx]);
 
-    const displayedProgressPercent = Math.max(
-        Number(enrollment?.progressPercent ?? 0),
-        computedProgressPercent,
-    );
+    const displayedProgressPercent = enrollment
+        ? Number(enrollment?.progressPercent ?? 0)
+        : computedProgressPercent;
 
     const canAccessCurrentLesson = Boolean(enrollment) || Boolean(currentLesson?.isPreview);
 
@@ -371,23 +370,6 @@ const LessonPlayer: React.FC = () => {
                                                     if (!canAccess) {
                                                         navigate(`/course/${id}`);
                                                         return;
-                                                    }
-
-                                                    const targetIdx = allLessons.findIndex((l) => l.id === lesson.id);
-                                                    if (targetIdx >= 0 && enrollment) {
-                                                        const progress = Math.min(
-                                                            100,
-                                                            Math.max(
-                                                                Number(enrollment?.progressPercent ?? 0),
-                                                                Math.round(((targetIdx + 1) / (allLessons.length || 1)) * 100),
-                                                            ),
-                                                        );
-
-                                                        try {
-                                                            const updated = await enrollmentService.updateProgress(String(id), progress);
-                                                            setEnrollment(updated);
-                                                        } catch (e) {
-                                                        }
                                                     }
 
                                                     navigate(`/course/${id}/lesson/${lesson.id}`);

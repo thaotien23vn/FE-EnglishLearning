@@ -135,7 +135,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                         <li className="mt-8 pt-6 border-t border-gray-100/50">
                             <p className="text-[10px] font-black text-amber-500 uppercase tracking-[0.3em] mb-4 px-4">Admin Tools</p>
                             <NavLink
-                                to="/teacher/dashboard"
+                                to={user?.role === 'ADMIN' ? '/admin/dashboard' : '/teacher/dashboard'}
                                 onClick={onClose}
                                 className={({ isActive }) =>
                                     `flex items-center gap-4 px-5 py-4 rounded-[22px] transition-all duration-500 group ${isActive
