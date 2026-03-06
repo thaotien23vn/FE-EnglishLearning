@@ -35,6 +35,8 @@ export type BackendTeacherLecture = {
   type: string;
   contentUrl?: string | null;
   duration?: number | null;
+  isPreview?: boolean;
+  attachments?: any;
   order?: number | null;
   chapterId: string | number;
   createdAt?: string;
@@ -112,6 +114,8 @@ export type UploadQuizMediaResponse = {
   format?: string;
   publicId?: string;
 };
+
+export type UploadAttachmentMediaResponse = UploadQuizMediaResponse;
 
 export type TeacherCourseContentResponse = {
   course: BackendTeacherCourse;
@@ -302,6 +306,10 @@ export const teacherService = {
     return data;
   },
 
+  async uploadAttachmentMedia(file: File): Promise<UploadAttachmentMediaResponse> {
+    return this.uploadQuizMedia(file);
+  },
+
   async createChapter(params: { courseId: string; title: string; order?: number }): Promise<BackendTeacherChapter> {
     const data = await apiRequest<{ chapter: BackendTeacherChapter }>(`teacher/courses/${params.courseId}/chapters`, {
       method: "POST",
@@ -338,6 +346,8 @@ export const teacherService = {
     type: string;
     contentUrl?: string;
     duration?: number;
+    isPreview?: boolean;
+    attachments?: any;
     order?: number;
     file?: File;
   }): Promise<BackendTeacherLecture> {
@@ -346,6 +356,8 @@ export const teacherService = {
     form.set("type", params.type);
     if (params.contentUrl != null) form.set("contentUrl", params.contentUrl);
     if (params.duration != null) form.set("duration", String(params.duration));
+    if (params.isPreview != null) form.set("isPreview", String(params.isPreview));
+    if (params.attachments != null) form.set("attachments", JSON.stringify(params.attachments));
     if (params.order != null) form.set("order", String(params.order));
     if (params.file) form.set("file", params.file);
 
@@ -363,6 +375,8 @@ export const teacherService = {
     type?: string;
     contentUrl?: string;
     duration?: number;
+    isPreview?: boolean;
+    attachments?: any;
     order?: number;
     file?: File;
   }): Promise<BackendTeacherLecture> {
@@ -373,6 +387,8 @@ export const teacherService = {
       if (params.type != null) form.set("type", params.type);
       if (params.contentUrl != null) form.set("contentUrl", params.contentUrl);
       if (params.duration != null) form.set("duration", String(params.duration));
+      if (params.isPreview != null) form.set("isPreview", String(params.isPreview));
+      if (params.attachments != null) form.set("attachments", JSON.stringify(params.attachments));
       if (params.order != null) form.set("order", String(params.order));
       if (params.file) form.set("file", params.file);
       return form;
@@ -381,6 +397,8 @@ export const teacherService = {
       type: params.type,
       contentUrl: params.contentUrl,
       duration: params.duration,
+      isPreview: params.isPreview,
+      attachments: params.attachments,
       order: params.order,
     });
 

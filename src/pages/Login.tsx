@@ -10,12 +10,13 @@ const Login: React.FC = () => {
   const [open, setOpen] = useState(true);
 
   const from = (location.state as any)?.from?.pathname || "/";
+  const closeTo = "/";
 
   useEffect(() => {
     if (user) {
       navigate(from, { replace: true });
     }
-  }, [user]);
+  }, [user, from, navigate]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -24,7 +25,7 @@ const Login: React.FC = () => {
         initialMode="LOGIN"
         onClose={() => {
           setOpen(false);
-          navigate(from, { replace: true });
+          navigate(closeTo, { replace: true });
         }}
       />
     </div>

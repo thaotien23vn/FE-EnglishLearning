@@ -177,7 +177,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
         <div className="flex items-center justify-between mb-6 relative">
             <h2 className="text-2xl font-bold text-gray-800 text-center w-full">{title}</h2>
             <button
-                onClick={onClose}
+                type="button"
+                onClick={(e) => {
+                    e.preventDefault();
+                    onClose();
+                }}
                 className="absolute right-[-10px] top-[-30px] cursor-pointer p-2 bg-white rounded-full shadow-lg text-gray-400 hover:text-gray-600 border border-gray-100 transition-all"
             >
                 <X size={20} />

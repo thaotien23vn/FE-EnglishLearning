@@ -10,6 +10,7 @@ interface CourseState {
   error: string | null;
   loadCourses: (q?: string) => Promise<void>;
   loadCourseDetail: (courseId: string) => Promise<FrontendCourse | undefined>;
+  reset: () => void;
   addCourse: (course: FrontendCourse) => void;
   updateCourse: (courseId: string, updatedCourse: Partial<FrontendCourse>) => void;
   deleteCourse: (courseId: string) => void;
@@ -56,6 +57,14 @@ export const useCourseStore = create<CourseState>()(
           set({ error: err instanceof Error ? err.message : "Không thể tải chi tiết khóa học" });
           return undefined;
         }
+      },
+      reset: () => {
+        set({
+          courses: [],
+          curriculumIndexByCourseId: {},
+          isLoading: false,
+          error: null,
+        });
       },
       addCourse: (course) => set({ courses: [course, ...get().courses] }),
       updateCourse: (courseId, updatedCourse) => {

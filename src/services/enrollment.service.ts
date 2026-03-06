@@ -11,15 +11,30 @@ export type BackendEnrollment = {
   Course?: BackendCourseListItem;
 };
 
+let cachedEnrollments: BackendEnrollment[] | null = null;
+let cachedAtMs = 0;
+const CACHE_TTL_MS = 30_000;
+
 export const enrollmentService = {
+  clearCache() {
+    cachedEnrollments = null;
+    cachedAtMs = 0;
+  },
   async listMyEnrollments(): Promise<BackendEnrollment[]> {
+    const now = Date.now();
+    if (cachedEnrollments && now - cachedAtMs < CACHE_TTL_MS) {
+      return cachedEnrollments;
+    }
+
     const data = await apiRequest<{ enrollments: BackendEnrollment[] }>(
       "student/enrollments",
       {
         method: "GET",
-      },
+      }
     );
 
+    cachedEnrollments = data.enrollments;
+    cachedAtMs = now;
     return data.enrollments;
   },
 

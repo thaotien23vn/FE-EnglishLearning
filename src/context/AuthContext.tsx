@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { User } from '../config/users-data';
 import { ApiError, tokenStorage } from '../services/api';
 import { authService } from '../services/auth.service';
+import { enrollmentService } from '../services/enrollment.service';
 import { useEnrollmentStore } from '../store/useEnrollmentStore';
 import { useCourseStore } from '../store/useCourseStore';
 
@@ -23,7 +24,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [isLoading, setIsLoading] = useState(true);
     const resetEnrollments = useEnrollmentStore((s) => s.reset);
     const syncEnrollments = useEnrollmentStore((s) => s.syncEnrollments);
-    useCourseStore();
+    const resetCourses = useCourseStore((s) => s.reset);
 
     useEffect(() => {
         const bootstrap = async () => {
@@ -41,6 +42,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 tokenStorage.clear();
                 localStorage.removeItem('elearning_user');
                 setUser(null);
+                resetEnrollments();
+                resetCourses();
+                enrollmentService.clearCache();
             } finally {
                 setIsLoading(false);
             }
@@ -57,6 +61,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const login = async (email: string, password: string): Promise<boolean> => {
         try {
+            enrollmentService.clearCache();
+            resetEnrollments();
+            resetCourses();
+
             const result = await authService.login({ email, password });
             setUser(result.user as unknown as User);
             localStorage.setItem('elearning_user', JSON.stringify(result.user));
@@ -114,11 +122,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updateUser = async (updatedData: Partial<User>): Promise<boolean> => {
         if (!user) return false;
 
-        const updatedUser = { ...user, ...updatedData };
-        setUser(updatedUser);
-        localStorage.setItem('elearning_user', JSON.stringify(updatedUser));
-
-        return true;
+        try {
+            const me = await authService.updateMe({
+                name: updatedData.fullName,
+                phone: updatedData.phone,
+                avatar: updatedData.avatar,
+            });
+            setUser(me as unknown as User);
+            localStorage.setItem('elearning_user', JSON.stringify(me));
+            return true;
+        } catch {
+            const updatedUser = { ...user, ...updatedData };
+            setUser(updatedUser);
+            localStorage.setItem('elearning_user', JSON.stringify(updatedUser));
+            return false;
+        }
     };
 
     const logout = () => {
@@ -126,6 +144,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.removeItem('elearning_user');
         authService.logout();
         resetEnrollments();
+        resetCourses();
+        enrollmentService.clearCache();
 
         try {
             localStorage.removeItem('enrollment-storage');

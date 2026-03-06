@@ -13,6 +13,7 @@ export type BackendUser = {
   role: BackendRole;
   avatar?: string;
   isEmailVerified?: boolean;
+  createdAt?: string;
 };
 
 export type FrontendUser = {
@@ -23,7 +24,24 @@ export type FrontendUser = {
   role: FrontendRole;
   avatar: string;
   phone?: string;
+  joinDate?: string;
   enrolledCourses: string[];
+};
+
+export type UpdateMeInput = {
+  name?: string;
+  phone?: string;
+  avatar?: string;
+};
+
+export type UploadAvatarResponse = {
+  uploaded: {
+    url: string;
+    publicId?: string;
+    bytes?: number;
+    format?: string;
+  };
+  user: BackendUser;
 };
 
 function roleToFrontend(role: BackendRole): FrontendRole {
@@ -43,6 +61,7 @@ export function mapBackendUserToFrontend(user: BackendUser): FrontendUser {
       user.avatar ||
       `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.email)}`,
     phone: user.phone,
+    joinDate: user.createdAt,
     enrolledCourses: [],
   };
 }
@@ -106,6 +125,30 @@ export const authService = {
   async me(): Promise<FrontendUser> {
     const data = await apiRequest<BackendUser>("auth/me", {
       method: "GET",
+    });
+
+    return mapBackendUserToFrontend(data);
+  },
+
+  async uploadAvatar(file: File): Promise<{ uploadedUrl: string; user: FrontendUser }> {
+    const form = new FormData();
+    form.append("file", file);
+
+    const data = await apiRequest<UploadAvatarResponse>("auth/me/avatar", {
+      method: "POST",
+      body: form,
+    });
+
+    return {
+      uploadedUrl: data.uploaded?.url,
+      user: mapBackendUserToFrontend(data.user),
+    };
+  },
+
+  async updateMe(input: UpdateMeInput): Promise<FrontendUser> {
+    const data = await apiRequest<BackendUser>("auth/me", {
+      method: "PUT",
+      body: JSON.stringify(input),
     });
 
     return mapBackendUserToFrontend(data);

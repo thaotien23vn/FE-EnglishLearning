@@ -32,14 +32,14 @@ const CourseDetails: React.FC = () => {
     useEffect(() => {
         if (!id) return;
 
-        if (!course) {
+        if (!course || !course.curriculum || course.curriculum.length === 0) {
             loadCourseDetail(id);
         }
 
         if (user?.role === 'STUDENT') {
             syncEnrollments();
         }
-    }, [id, user?.role, syncEnrollments]);
+    }, [id, course?.curriculum?.length, user?.role, syncEnrollments]);
 
     useEffect(() => {
         window.scrollTo({ top: 0, behavior: 'smooth' });

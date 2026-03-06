@@ -7,10 +7,12 @@ import {
 } from 'lucide-react';
 import { useCourseStore } from '../store/useCourseStore';
 import { enrollmentService, type BackendEnrollment } from '../services/enrollment.service';
+import { useAuth } from '../context/AuthContext';
 
 const LessonPlayer: React.FC = () => {
     const { id, lessonId } = useParams<{ id: string, lessonId: string }>();
     const navigate = useNavigate();
+    const { user } = useAuth();
     const { courses, loadCourseDetail, getCurriculumIndex } = useCourseStore();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [enrollment, setEnrollment] = useState<BackendEnrollment | null>(null);
@@ -31,6 +33,7 @@ const LessonPlayer: React.FC = () => {
         const loadEnrollment = async () => {
             if (!id) return;
             try {
+                enrollmentService.clearCache();
                 const enrollments = await enrollmentService.listMyEnrollments();
                 const en = enrollments.find((e) => String(e.courseId) === String(id)) || null;
                 setEnrollment(en);
@@ -40,7 +43,11 @@ const LessonPlayer: React.FC = () => {
         };
 
         loadEnrollment();
-    }, [id]);
+    }, [id, user?.id]);
+
+    useEffect(() => {
+        setEnrollment(null);
+    }, [user?.id]);
 
     const curriculumIndex = useMemo(() => {
         if (!id) return undefined;
@@ -108,6 +115,16 @@ const LessonPlayer: React.FC = () => {
     };
 
     const renderLessonMedia = () => {
+        if (!canAccessCurrentLesson) {
+            return (
+                <div className="absolute inset-0 flex items-center justify-center p-6">
+                    <div className="text-center">
+                        <p className="text-white/80 text-sm font-bold">Nội dung bị khóa</p>
+                    </div>
+                </div>
+            );
+        }
+
         const url = String(currentLesson?.videoUrl || '').trim();
         const type = String((currentLesson as any)?.type || 'video');
         if (!url) {
@@ -173,7 +190,43 @@ const LessonPlayer: React.FC = () => {
         );
     };
 
-    if (!course) return null;
+    if (!id) {
+        return (
+            <div className="min-h-[60vh] flex flex-col items-center justify-center bg-gray-50 p-10 text-center">
+                <p className="font-bold text-gray-600">Không tìm thấy khóa học</p>
+                <button
+                    onClick={() => navigate('/courses')}
+                    className="mt-4 px-6 py-3 rounded-2xl bg-gray-900 text-white font-black hover:bg-amber-600 transition-all"
+                >
+                    VỀ DANH SÁCH KHÓA HỌC
+                </button>
+            </div>
+        );
+    }
+
+    if (!course) {
+        return (
+            <div className="min-h-[60vh] flex flex-col items-center justify-center bg-gray-50">
+                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-amber-500"></div>
+                <p className="mt-4 text-sm font-bold text-gray-500">Đang tải bài học...</p>
+            </div>
+        );
+    }
+
+    const hasLessons = (curriculumIndex?.lessonIds?.length ?? 0) > 0 || (course.curriculum?.some((m) => m.lessons?.length > 0) ?? false);
+    if (!hasLessons) {
+        return (
+            <div className="min-h-[60vh] flex flex-col items-center justify-center bg-gray-50 p-10 text-center">
+                <p className="font-bold text-gray-600">Khóa học chưa có bài học nào</p>
+                <button
+                    onClick={() => navigate(`/course/${id}`)}
+                    className="mt-4 px-6 py-3 rounded-2xl bg-gray-900 text-white font-black hover:bg-amber-600 transition-all"
+                >
+                    VỀ TRANG KHÓA HỌC
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col h-full bg-white overflow-hidden">

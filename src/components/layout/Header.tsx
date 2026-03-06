@@ -144,7 +144,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuClick }) => {
                                                     );
                                                 })}
                                                 <div className="col-span-2 mt-2 p-4 bg-amber-50/50 rounded-[20px] flex items-center justify-between">
-                                                    <p className="text-xs font-bold text-gray-600 italic">Đã có hơn 50.000 sinh viên tin tưởng đồng hành</p>
+                                                    <p className="text-xs font-bold text-gray-600 italic">Nhiều sinh viên đã tin tưởng đồng hành</p>
                                                     <button className="text-[10px] font-black text-amber-600 uppercase tracking-widest hover:underline">Tất cả chương trình →</button>
                                                 </div>
                                             </div>

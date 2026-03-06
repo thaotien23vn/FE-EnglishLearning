@@ -31,8 +31,8 @@ const ContentEditor: React.FC = () => {
             id: String(lecture.id),
             title: lecture.title,
             duration,
-            isPreview: false,
-            attachments: [],
+            isPreview: Boolean((lecture as any).isPreview),
+            attachments: Array.isArray((lecture as any).attachments) ? (lecture as any).attachments : [],
             videoUrl: lecture.contentUrl || '',
             type: lecture.type,
         } as any;
@@ -67,6 +67,29 @@ const ContentEditor: React.FC = () => {
         if (mime.startsWith('audio/')) return 'audio';
         if (mime === 'application/pdf') return 'pdf';
         return 'file';
+    };
+
+    const getAcceptForLectureType = (type: string): string | undefined => {
+        const t = String(type || '').toLowerCase();
+        if (t === 'video') return 'video/*';
+        if (t === 'audio') return 'audio/*';
+        if (t === 'pdf') return 'application/pdf';
+        return undefined;
+    };
+
+    const isFileAllowedForLectureType = (file: File, type: string): boolean => {
+        const t = String(type || '').toLowerCase();
+        const mime = String(file.type || '').toLowerCase();
+        if (t === 'video') return mime.startsWith('video/');
+        if (t === 'audio') return mime.startsWith('audio/');
+        if (t === 'pdf') return mime === 'application/pdf';
+        return true;
+    };
+
+    const getAcceptForAttachmentType = (type: LessonAttachment['type']): string | undefined => {
+        if (type === 'pdf') return 'application/pdf';
+        if (type === 'image') return 'image/*';
+        return undefined;
     };
 
     useEffect(() => {
@@ -173,6 +196,8 @@ const ContentEditor: React.FC = () => {
                                 type: String((lesson as any).type || 'video'),
                                 contentUrl: (lesson as any).videoUrl || undefined,
                                 duration: parseDurationToSeconds(lesson.duration),
+                                isPreview: Boolean((lesson as any).isPreview),
+                                attachments: Array.isArray((lesson as any).attachments) ? (lesson as any).attachments : [],
                                 order: lIdx,
                             }),
                         );
@@ -274,6 +299,37 @@ const ContentEditor: React.FC = () => {
         const newAttachments = [...(currentLesson.attachments || [])];
         newAttachments.splice(atIdx, 1);
         updateCurrentLesson({ attachments: newAttachments });
+    };
+
+    const uploadAttachmentFile = async (atIdx: number, file: File) => {
+        if (!editingLesson || !currentLesson) return;
+        const item = currentLesson.attachments?.[atIdx];
+        if (!item) return;
+
+        const mime = String(file.type || '').toLowerCase();
+        if (item.type === 'pdf' && mime !== 'application/pdf') {
+            toast.error('Vui lòng chọn đúng file PDF');
+            return;
+        }
+        if (item.type === 'image' && !mime.startsWith('image/')) {
+            toast.error('Vui lòng chọn đúng file hình ảnh');
+            return;
+        }
+        if (item.type === 'link') {
+            toast.error('Tài liệu dạng link không upload file');
+            return;
+        }
+
+        try {
+            setIsUploading(true);
+            const res = await teacherService.uploadAttachmentMedia(file);
+            updateAttachment(atIdx, { url: res.url });
+            toast.success('Upload tài liệu thành công');
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : 'Upload tài liệu thất bại');
+        } finally {
+            setIsUploading(false);
+        }
     };
 
     return (
@@ -500,11 +556,45 @@ const ContentEditor: React.FC = () => {
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Thời lượng (m:s)</label>
-                                                <input
-                                                    className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 font-bold text-gray-900 transition-all text-center"
-                                                    value={currentLesson.duration}
-                                                    onChange={e => updateCurrentLesson({ duration: e.target.value })}
-                                                />
+                                                {(() => {
+                                                    const raw = String(currentLesson.duration || '00:00');
+                                                    const m = raw.match(/^(\d{1,3}):(\d{1,2})$/);
+                                                    const mm = m ? Math.max(0, Math.min(999, Number(m[1]) || 0)) : 0;
+                                                    const ss = m ? Math.max(0, Math.min(59, Number(m[2]) || 0)) : 0;
+                                                    const minuteOptions = Array.from({ length: 181 }, (_, i) => i);
+                                                    const secondOptions = Array.from({ length: 60 }, (_, i) => i);
+
+                                                    const set = (nextMm: number, nextSs: number) => {
+                                                        const safeMm = Math.max(0, Math.min(999, nextMm));
+                                                        const safeSs = Math.max(0, Math.min(59, nextSs));
+                                                        updateCurrentLesson({
+                                                            duration: `${String(safeMm).padStart(2, '0')}:${String(safeSs).padStart(2, '0')}`,
+                                                        });
+                                                    };
+
+                                                    return (
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <select
+                                                                className="w-full px-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 font-bold text-gray-900 transition-all text-center"
+                                                                value={mm}
+                                                                onChange={(e) => set(Number(e.target.value), ss)}
+                                                            >
+                                                                {minuteOptions.map((v) => (
+                                                                    <option key={v} value={v}>{String(v).padStart(2, '0')} m</option>
+                                                                ))}
+                                                            </select>
+                                                            <select
+                                                                className="w-full px-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 font-bold text-gray-900 transition-all text-center"
+                                                                value={ss}
+                                                                onChange={(e) => set(mm, Number(e.target.value))}
+                                                            >
+                                                                {secondOptions.map((v) => (
+                                                                    <option key={v} value={v}>{String(v).padStart(2, '0')} s</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                             <div className="space-y-2">
                                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Chế độ xem trước</label>
@@ -536,11 +626,18 @@ const ContentEditor: React.FC = () => {
                                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Upload từ máy (Video/Audio/PDF/File)</label>
                                             <input
                                                 type="file"
+                                                accept={getAcceptForLectureType(String((currentLesson as any).type || 'video'))}
                                                 disabled={isUploading}
                                                 className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 font-medium text-sm text-gray-600 transition-all"
                                                 onChange={(e) => {
                                                     const file = e.target.files?.[0];
                                                     if (!file) return;
+                                                    const lectureType = String((currentLesson as any).type || guessLectureTypeFromFile(file));
+                                                    if (!isFileAllowedForLectureType(file, lectureType)) {
+                                                        toast.error(`Vui lòng chọn đúng loại file: ${lectureType.toUpperCase()}`);
+                                                        e.currentTarget.value = '';
+                                                        return;
+                                                    }
                                                     uploadLectureFile(file);
                                                     e.currentTarget.value = '';
                                                 }}
@@ -711,6 +808,23 @@ const ContentEditor: React.FC = () => {
                                                             value={item.url}
                                                             onChange={e => updateAttachment(idx, { url: e.target.value })}
                                                         />
+
+                                                        {(item.type === 'pdf' || item.type === 'image') && (
+                                                            <div className="pt-1">
+                                                                <input
+                                                                    type="file"
+                                                                    accept={getAcceptForAttachmentType(item.type)}
+                                                                    disabled={isUploading}
+                                                                    className="w-full px-4 py-3 bg-white border border-gray-100 rounded-xl outline-none focus:border-amber-500 font-medium text-xs text-gray-600 transition-all"
+                                                                    onChange={(e) => {
+                                                                        const f = e.target.files?.[0];
+                                                                        if (!f) return;
+                                                                        uploadAttachmentFile(idx, f);
+                                                                        e.currentTarget.value = '';
+                                                                    }}
+                                                                />
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 ))}
                                             </div>

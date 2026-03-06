@@ -5,6 +5,11 @@ export type BackendCourseListItem = {
   title: string;
   slug?: string;
   description?: string;
+  imageUrl?: string | null;
+  level?: string | null;
+  rating?: number | string | null;
+  reviewCount?: number | null;
+  duration?: string | null;
   price?: number;
   published?: boolean;
   createdAt?: string;
@@ -23,6 +28,8 @@ export type BackendLecture = {
   contentUrl?: string;
   duration?: number;
   order?: number;
+  isPreview?: boolean;
+  attachments?: any;
 };
 
 export type BackendChapter = {
@@ -42,6 +49,18 @@ function secondsToDuration(sec?: number) {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function normalizeIsPreview(value: unknown): boolean {
+  if (value === true) return true;
+  if (value === false) return false;
+  if (value === 1) return true;
+  if (value === 0) return false;
+  const s = String(value ?? "").trim().toLowerCase();
+  if (!s) return false;
+  if (s === "1" || s === "true" || s === "yes") return true;
+  if (s === "0" || s === "false" || s === "no") return false;
+  return false;
 }
 
 export type FrontendCourse = {
@@ -91,7 +110,7 @@ export function mapBackendCourseToFrontend(course: BackendCourseDetail): Fronten
           id: String(lec.id ?? lecIdx),
           title: lec.title,
           duration: secondsToDuration(lec.duration),
-          isPreview: true,
+          isPreview: normalizeIsPreview((lec as any)?.isPreview),
           videoUrl: lec.contentUrl,
           type: lec.type,
         })),
@@ -103,8 +122,12 @@ export function mapBackendCourseToFrontend(course: BackendCourseDetail): Fronten
     id: String(course.id),
     title: course.title,
     teacher: course.creator?.name || "",
-    teacherAvatar: `https://i.pravatar.cc/150?u=${encodeURIComponent(String(course.creator?.id ?? course.id))}`,
-    image: "/elearning-1.jpg",
+    teacherAvatar:
+      (course.creator as any)?.avatarUrl ||
+      (course.creator as any)?.avatar ||
+      (course.creator as any)?.imageUrl ||
+      undefined,
+    image: course.imageUrl || "/elearning-1.jpg",
     category: "Tất cả",
     rating: 0,
     reviewCount: 0,
@@ -151,7 +174,17 @@ export const courseService = {
           description: String(maybe.description ?? ""),
           willLearn: Array.isArray(maybe.willLearn) ? maybe.willLearn : [],
           requirements: Array.isArray(maybe.requirements) ? maybe.requirements : [],
-          curriculum: Array.isArray(maybe.curriculum) ? maybe.curriculum : [],
+          curriculum: Array.isArray(maybe.curriculum)
+            ? maybe.curriculum.map((m: any) => ({
+                ...m,
+                lessons: Array.isArray(m?.lessons)
+                  ? m.lessons.map((l: any) => ({
+                      ...l,
+                      isPreview: normalizeIsPreview(l?.isPreview),
+                    }))
+                  : [],
+              }))
+            : [],
           tags: Array.isArray(maybe.tags) ? maybe.tags : [],
           price: Number(maybe.price ?? 0),
           lastUpdated: String(maybe.lastUpdated ?? ""),
@@ -189,7 +222,17 @@ export const courseService = {
         description: String(maybe.description ?? ""),
         willLearn: Array.isArray(maybe.willLearn) ? maybe.willLearn : [],
         requirements: Array.isArray(maybe.requirements) ? maybe.requirements : [],
-        curriculum: Array.isArray(maybe.curriculum) ? maybe.curriculum : [],
+        curriculum: Array.isArray(maybe.curriculum)
+          ? maybe.curriculum.map((m: any) => ({
+              ...m,
+              lessons: Array.isArray(m?.lessons)
+                ? m.lessons.map((l: any) => ({
+                    ...l,
+                    isPreview: normalizeIsPreview(l?.isPreview),
+                  }))
+                : [],
+            }))
+          : [],
         tags: Array.isArray(maybe.tags) ? maybe.tags : [],
         price: Number(maybe.price ?? 0),
         lastUpdated: String(maybe.lastUpdated ?? ""),
