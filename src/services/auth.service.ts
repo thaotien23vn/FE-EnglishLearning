@@ -162,6 +162,18 @@ export const authService = {
     });
   },
 
+  async resetPassword(input: {
+    token: string;
+    password: string;
+    confirmPassword: string;
+  }): Promise<void> {
+    await apiRequest<unknown>("auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify(input),
+      auth: false,
+    });
+  },
+
   logout() {
     tokenStorage.clear();
   },

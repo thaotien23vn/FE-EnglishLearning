@@ -1,180 +1,260 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Trash2, Save } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Plus, Edit2, Trash2, Hash, Search, AlertCircle, Loader2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { adminService, type BackendAdminCategory } from '../../services/admin.service';
 
 const AdminCategories: React.FC = () => {
-  const [items, setItems] = useState<BackendAdminCategory[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [q, setQ] = useState('');
-
-  const [newName, setNewName] = useState('');
-  const [newSection, setNewSection] = useState('');
-
-  const load = async () => {
-    setLoading(true);
-    try {
-      const data = await adminService.listCategories();
-      setItems(data);
-    } catch (e: any) {
-      toast.error(e?.message || 'Lỗi tải categories');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [categories, setCategories] = useState<BackendAdminCategory[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<BackendAdminCategory | null>(null);
+  const [formData, setFormData] = useState({ name: '', menuSection: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    load();
+    fetchCategories();
   }, []);
 
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    if (!s) return items;
-    return items.filter((c) => `${c.name} ${c.menuSection || ''}`.toLowerCase().includes(s));
-  }, [items, q]);
-
-  const onCreate = async () => {
+  const fetchCategories = async () => {
     try {
-      if (!newName.trim()) {
-        toast.error('Vui lòng nhập tên category');
-        return;
+      setIsLoading(true);
+      const data = await adminService.listCategories();
+      setCategories(data);
+    } catch (error: any) {
+      toast.error(error?.message || 'Không thể tải danh sách danh mục');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOpenModal = (category?: BackendAdminCategory) => {
+    if (category) {
+      setEditingCategory(category);
+      setFormData({
+        name: category.name,
+        menuSection: category.menuSection ? String(category.menuSection) : '',
+      });
+    } else {
+      setEditingCategory(null);
+      setFormData({ name: '', menuSection: '' });
+    }
+    setIsModalOpen(true);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formData.name.trim()) {
+      toast.error('Vui lòng nhập tên danh mục');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      if (editingCategory) {
+        await adminService.updateCategory(String(editingCategory.id), {
+          name: formData.name.trim(),
+          menuSection: formData.menuSection.trim() || null,
+        });
+        toast.success('Cập nhật thành công');
+        await fetchCategories();
+        setIsModalOpen(false);
+      } else {
+        await adminService.createCategory({
+          name: formData.name.trim(),
+          menuSection: formData.menuSection.trim() || null,
+        });
+        toast.success('Thêm mới thành công');
+        await fetchCategories();
+        setIsModalOpen(false);
       }
-      const c = await adminService.createCategory({ name: newName.trim(), menuSection: newSection.trim() || null });
-      toast.success('Tạo category thành công');
-      setItems((prev) => [c, ...prev]);
-      setNewName('');
-      setNewSection('');
-    } catch (e: any) {
-      toast.error(e?.message || 'Tạo category thất bại');
+    } catch (error: any) {
+      toast.error(error?.message || 'Thao tác thất bại');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const onUpdate = async (c: BackendAdminCategory) => {
+  const handleDelete = async (id: string | number) => {
+    if (!window.confirm('Bạn có chắc chắn muốn xóa danh mục này?')) return;
     try {
-      const name = window.prompt('Tên category', c.name);
-      if (!name) return;
-      const menuSection = window.prompt('Menu section (optional)', c.menuSection || '') ?? '';
-      const updated = await adminService.updateCategory(String(c.id), { name, menuSection: menuSection || null });
-      toast.success('Cập nhật category thành công');
-      setItems((prev) => prev.map((x) => (String(x.id) === String(c.id) ? updated : x)));
-    } catch (e: any) {
-      toast.error(e?.message || 'Cập nhật category thất bại');
+      await adminService.deleteCategory(String(id));
+      toast.success('Đã xóa danh mục');
+      setCategories((prev) => prev.filter((c) => String(c.id) !== String(id)));
+    } catch (error: any) {
+      toast.error(error?.message || 'Lỗi khi xóa danh mục');
     }
   };
 
-  const onDelete = async (c: BackendAdminCategory) => {
-    const ok = window.confirm(`Xóa category "${c.name}"?`);
-    if (!ok) return;
-    try {
-      await adminService.deleteCategory(String(c.id));
-      toast.success('Đã xóa category');
-      setItems((prev) => prev.filter((x) => String(x.id) !== String(c.id)));
-    } catch (e: any) {
-      toast.error(e?.message || 'Xóa category thất bại');
-    }
-  };
+  const filteredCategories = categories.filter((c) =>
+    `${c.name} ${c.menuSection || ''}`.toLowerCase().includes(searchTerm.toLowerCase()),
+  );
 
   return (
-    <div className="w-full">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-black text-gray-900">Quản lý danh mục</h1>
-            <p className="text-gray-500 font-medium mt-1">CRUD categories</p>
-          </div>
+    <div className="max-w-7xl mx-auto pb-20 px-4 pt-10">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+        <div>
+          <h1 className="text-4xl font-bold text-gray-900 flex items-center gap-3">
+            Quản lý <span className="text-amber-600">Danh mục.</span>
+          </h1>
+          <p className="text-gray-400 font-bold mt-2 uppercase tracking-widest text-[11px]">Cơ cấu hệ thống & Phân loại khóa học</p>
         </div>
 
-        <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm p-6 mb-6 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="flex items-center gap-3 bg-gray-50 rounded-2xl px-4 py-3 border border-gray-100">
-              <Search size={18} className="text-gray-400" />
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Tìm category..."
-                className="w-full outline-none font-bold text-gray-700 bg-transparent"
-              />
-            </div>
+        <button
+          onClick={() => handleOpenModal()}
+          className="flex items-center gap-2 bg-gray-900 text-white px-8 py-4 rounded-2xl font-bold text-sm uppercase tracking-widest hover:bg-amber-600 transition-all shadow-xl active:scale-95 cursor-pointer"
+        >
+          <Plus size={20} strokeWidth={3} />
+          THÊM DANH MỤC
+        </button>
+      </div>
 
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="Tên category mới"
-              className="bg-gray-50 rounded-2xl px-4 py-3 border border-gray-100 font-bold outline-none"
-            />
-
-            <div className="flex items-center gap-2">
-              <input
-                value={newSection}
-                onChange={(e) => setNewSection(e.target.value)}
-                placeholder="Menu section (optional)"
-                className="flex-1 bg-gray-50 rounded-2xl px-4 py-3 border border-gray-100 font-bold outline-none"
-              />
-              <button
-                onClick={onCreate}
-                className="px-4 py-3 rounded-2xl font-black bg-gray-900 text-white hover:bg-amber-600 flex items-center gap-2"
-              >
-                <Plus size={16} />
-                Tạo
-              </button>
-            </div>
-          </div>
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 mb-10">
+        <div className="bg-white p-8 rounded-[40px] border border-gray-100 shadow-sm">
+          <p className="text-[14px] font-bold text-gray-400  mb-1">Tổng danh mục</p>
+          <h3 className="text-4xl font-bold text-gray-900">{categories.length}</h3>
         </div>
-
-        <div className="bg-white rounded-[32px] border border-gray-100 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-gray-50 flex items-center justify-between">
-            <h2 className="text-lg font-black text-gray-900">Categories</h2>
-            <span className="text-xs font-black text-gray-400 uppercase tracking-widest">{filtered.length} items</span>
-          </div>
-
-          {loading ? (
-            <div className="p-10 text-center font-bold text-gray-400">Đang tải...</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left">
-                <thead className="bg-gray-50/50">
-                  <tr>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Name</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider">Menu Section</th>
-                    <th className="px-6 py-4 text-xs font-bold text-gray-400 uppercase tracking-wider text-right">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filtered.map((c) => (
-                    <tr key={String(c.id)} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="px-6 py-5 text-sm font-black text-gray-900">{c.name}</td>
-                      <td className="px-6 py-5 text-sm font-bold text-gray-600">{c.menuSection || '-'}</td>
-                      <td className="px-6 py-5">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => onUpdate(c)}
-                            className="p-2 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all"
-                            title="Cập nhật"
-                          >
-                            <Save size={18} />
-                          </button>
-                          <button
-                            onClick={() => onDelete(c)}
-                            className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                            title="Xóa"
-                          >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {filtered.length === 0 && (
-                    <tr>
-                      <td colSpan={3} className="px-6 py-16 text-center text-gray-500 font-bold">Không có dữ liệu</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
+        <div className="lg:col-span-3 bg-white p-4 rounded-[32px] border border-gray-100 shadow-sm flex items-center px-8 relative overflow-hidden group">
+          <Search className="absolute left-10 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-amber-500 transition-colors" />
+          <input
+            type="text"
+            placeholder="Tìm kiếm danh mục theo tên hoặc nhóm thực đơn..."
+            className="w-full bg-transparent border-none outline-none pl-10 pr-4 py-4 font-bold text-gray-700 text-md"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
       </div>
+
+      <div className="bg-white rounded-[48px] border border-gray-100 shadow-xl shadow-gray-200/20 overflow-hidden">
+        <table className="w-full text-left border-collapse">
+          <thead>
+            <tr className="bg-gray-50/50">
+              <th className="px-10 py-8 text-[12px] font-bold text-gray-400 ">Thông tin danh mục</th>
+              <th className="px-10 py-8 text-[12px] font-bold text-gray-400 ">Nhóm thực đơn</th>
+              <th className="px-10 py-8 text-[12px] font-bold text-gray-400 ">Ngày tạo</th>
+              <th className="px-10 py-8 text-[12px] font-bold text-gray-400 ">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-50">
+            {isLoading ? (
+              <tr>
+                <td colSpan={4} className="py-20 text-center">
+                  <div className="flex flex-col items-center gap-4">
+                    <Loader2 className="animate-spin text-amber-500" size={40} />
+                    <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Đang tải dữ liệu...</p>
+                  </div>
+                </td>
+              </tr>
+            ) : filteredCategories.length > 0 ? (
+              filteredCategories.map((cat) => (
+                <tr key={String(cat.id)} className="hover:bg-amber-50/30 transition-all group">
+                  <td className="px-10 py-8">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-300 group-hover:bg-amber-100 group-hover:text-amber-600 transition-all">
+                        <Hash size={20} />
+                      </div>
+                      <div>
+                        <h4 className="text-lg font-bold text-gray-900 group-hover:text-amber-600 transition-colors uppercase tracking-tight">
+                          {cat.name}
+                        </h4>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-0.5">ID: #{String(cat.id)}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-10 py-8 text-center">
+                    <span className="px-4 py-2 bg-gray-100 text-gray-600 rounded-xl text-[11px] font-bold uppercase tracking-wider group-hover:bg-white transition-colors border border-transparent group-hover:border-gray-100">
+                      {cat.menuSection || '---'}
+                    </span>
+                  </td>
+                  <td className="px-10 py-8 text-center">
+                    <span className="text-sm font-bold text-gray-400">
+                      {cat.createdAt ? new Date(cat.createdAt).toLocaleDateString('vi-VN') : '---'}
+                    </span>
+                  </td>
+                  <td className="px-10 py-8">
+                    <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-all">
+                      <button
+                        onClick={() => handleOpenModal(cat)}
+                        className="p-3 bg-white text-blue-500 rounded-2xl shadow-sm border border-gray-100 hover:shadow-lg hover:scale-110 transition-all cursor-pointer"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(cat.id)}
+                        className="p-3 bg-white text-red-500 rounded-2xl shadow-sm border border-gray-100 hover:shadow-lg hover:scale-110 transition-all cursor-pointer"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={4} className="py-20 text-center">
+                  <AlertCircle className="mx-auto text-gray-200 mb-4" size={48} />
+                  <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Không tìm thấy danh mục nào</p>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-gray-900/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)}></div>
+          <div className="bg-white rounded-[48px] w-full max-w-xl relative z-10 shadow-2xl overflow-hidden animate-in zoom-in duration-300">
+            <div className="p-10 border-b border-gray-50 flex items-center justify-between">
+              <h2 className="text-2xl font-bold text-gray-900">
+                {editingCategory ? 'Chỉnh sửa' : 'Thêm'} <span className="text-amber-600">Danh mục</span>
+              </h2>
+              <button onClick={() => setIsModalOpen(false)} className="p-2 text-gray-400 hover:text-gray-900 transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="p-10 space-y-6">
+              <div className="space-y-4">
+                <label className="text-[14px] font-bold text-gray-400 ml-1">Tên danh mục</label>
+                <input
+                  type="text"
+                  className="w-full bg-gray-50 border border-gray-100 rounded-2xl py-4 px-6 font-bold text-gray-900 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-500/5 transition-all shadow-inner"
+                  placeholder="Ví dụ: Lập trình Web"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                />
+              </div>
+              <div className="space-y-4">
+                <label className="text-[14px] font-bold text-gray-400 ml-1">Nhóm thực đơn</label>
+                <input
+                  type="text"
+                  className="w-full bg-gray-50 border border-gray-100 rounded-2xl py-4 px-6 font-bold text-gray-900 outline-none focus:border-amber-500 focus:ring-4 focus:ring-amber-500/5 transition-all shadow-inner"
+                  placeholder="Ví dụ: Công nghệ thông tin"
+                  value={formData.menuSection}
+                  onChange={(e) => setFormData({ ...formData, menuSection: e.target.value })}
+                />
+              </div>
+              <div className="pt-4 flex gap-4">
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 bg-gray-900 text-white py-5 rounded-3xl font-bold text-sm uppercase tracking-widest hover:bg-amber-600 transition-all shadow-lg active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+                >
+                  {isSubmitting ? <Loader2 className="animate-spin mx-auto" /> : editingCategory ? 'CẬP NHẬT' : 'XÁC NHẬN THÊM'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-10 bg-gray-50 text-gray-400 py-5 rounded-3xl font-black text-sm uppercase tracking-widest hover:bg-gray-100 transition-all"
+                >
+                  HỦY
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

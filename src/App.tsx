@@ -11,9 +11,11 @@ import EnrollmentList from './pages/EnrollmentList';
 import MyLearning from './pages/MyLearning';
 import MyTests from './pages/MyTests';
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
 import TeacherDashboard from './pages/teacher/Dashboard';
 import StudentManagement from './pages/teacher/StudentManagement';
 import QuizManagement from './pages/teacher/QuizManagement';
+import TeacherStatistics from './pages/teacher/Statistics';
 import TeacherLayout from './components/layout/TeacherLayout';
 import AdminLayout from './components/layout/AdminLayout';
 import CourseEditor from './pages/teacher/CourseEditor';
@@ -36,6 +38,7 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Home />} />
             <Route path="courses" element={<Courses />} />
@@ -111,6 +114,7 @@ function App() {
           >
             <Route index element={<TeacherDashboard />} />
             <Route path="dashboard" element={<TeacherDashboard />} />
+            <Route path="statistics" element={<TeacherStatistics />} />
             <Route path="students" element={<StudentManagement />} />
             <Route path="quizzes" element={<QuizManagement />} />
             <Route path="courses" element={<TeacherCourses />} />

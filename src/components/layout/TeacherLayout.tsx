@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
     LayoutDashboard,
+    BarChart3,
     BookOpen,
     Users,
     FileText,
@@ -25,6 +26,7 @@ const TeacherLayout: React.FC = () => {
 
     const menuItems = [
         { label: 'Thống kê chính', path: '/teacher/dashboard', icon: LayoutDashboard },
+        { label: 'Thống kê chi tiết', path: '/teacher/statistics', icon: BarChart3 },
         { label: 'Quản lý Khóa học', path: '/teacher/courses', icon: BookOpen },
         { label: 'Quản lý Học viên', path: '/teacher/students', icon: Users },
         { label: 'Đề thi & Kiểm tra', path: '/teacher/quizzes', icon: FileText },
