@@ -9,6 +9,8 @@ import { useCourseStore } from '../../store/useCourseStore';
 import { useAuth } from '../../context/AuthContext';
 import toast from 'react-hot-toast';
 import { type Course } from '../../config/mock-data';
+import { teacherService } from '../../services/teacher.service';
+import { categoryService, type BackendCategory } from '../../services/category.service';
 
 const CATEGORIES = [
     'Bứt phá vào 10',
@@ -23,9 +25,14 @@ const CourseEditor: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const { user } = useAuth();
-    const { courses, addCourse, updateCourse } = useCourseStore();
+    const { courses } = useCourseStore();
 
     const isEditMode = !!id;
+    const [isSaving, setIsSaving] = useState(false);
+    const [isThumbUploading, setIsThumbUploading] = useState(false);
+    const [previewThumb, setPreviewThumb] = useState<string | null>(null);
+    const [categories, setCategories] = useState<BackendCategory[]>([]);
+    const [visibility, setVisibility] = useState<'draft' | 'published' | 'private'>('draft');
     const [formData, setFormData] = useState<Partial<Course>>({
         title: '',
         description: '',
@@ -47,16 +54,65 @@ const CourseEditor: React.FC = () => {
     const [newItem, setNewItem] = useState({ willLearn: '', requirement: '' });
 
     useEffect(() => {
-        if (isEditMode) {
-            const course = courses.find(c => c.id === id);
+        const loadCategories = async () => {
+            try {
+                const list = await categoryService.listCategories();
+                setCategories(list || []);
+
+                if (list?.length && !(formData as any).categoryId) {
+                    setFormData((prev) => ({
+                        ...prev,
+                        categoryId: list[0].id,
+                    }));
+                }
+            } catch (e) {
+                setCategories([]);
+            }
+        };
+
+        loadCategories();
+    }, []);
+
+    useEffect(() => {
+        const load = async () => {
+            if (!isEditMode || !id) return;
+
+            const course = courses.find(c => String(c.id) === String(id));
             if (course) {
-                setFormData(course);
-            } else {
-                toast.error('Không tìm thấy khóa học');
+                setFormData(course as any);
+                return;
+            }
+
+            try {
+                const ownerCourse = await teacherService.getCourseForOwner(String(id));
+                setFormData((prev) => ({
+                    ...prev,
+                    title: ownerCourse.title || '',
+                    description: ownerCourse.description || '',
+                    image: ownerCourse.imageUrl || prev.image,
+                    level: (ownerCourse.level as any) || LEVELS[0],
+                    duration: ownerCourse.duration || '',
+                    willLearn: Array.isArray(ownerCourse.willLearn) ? ownerCourse.willLearn : [],
+                    requirements: Array.isArray(ownerCourse.requirements) ? ownerCourse.requirements : [],
+                }));
+
+                setVisibility(ownerCourse.published ? 'published' : 'draft');
+            } catch (e) {
+                toast.error(e instanceof Error ? e.message : 'Không thể tải khóa học');
                 navigate('/teacher/dashboard');
             }
-        }
+        };
+
+        load();
     }, [id, courses, isEditMode, navigate]);
+
+    useEffect(() => {
+        return () => {
+            if (previewThumb) {
+                URL.revokeObjectURL(previewThumb);
+            }
+        };
+    }, [previewThumb]);
 
     const handleAddItem = (type: 'willLearn' | 'requirements') => {
         const value = type === 'willLearn' ? newItem.willLearn : newItem.requirement;
@@ -76,32 +132,60 @@ const CourseEditor: React.FC = () => {
         }));
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSubmit = async (e?: React.SyntheticEvent) => {
+        e?.preventDefault();
 
         if (!formData.title || !formData.description) {
             toast.error('Vui lòng điền đầy đủ thông tin bắt buộc');
             return;
         }
 
-        if (isEditMode && id) {
-            updateCourse(id, formData);
-            toast.success('Cập nhật khóa học thành công!');
-        } else {
-            const newCourse: Course = {
-                ...formData as Course,
-                id: `c${Date.now()}`,
-            };
-            addCourse(newCourse);
-            toast.success('Tạo khóa học thành công!');
-        }
+        try {
+            setIsSaving(true);
+            const published = visibility === 'published';
+            if (isEditMode && id) {
+                await teacherService.updateCourse(String(id), {
+                    title: String(formData.title),
+                    description: String(formData.description),
+                    level: String(formData.level || LEVELS[0]),
+                    duration: String(formData.duration || ''),
+                    willLearn: Array.isArray(formData.willLearn) ? formData.willLearn : [],
+                    requirements: Array.isArray(formData.requirements) ? formData.requirements : [],
+                    published,
+                    categoryId: (formData as any).categoryId ?? null,
+                    imageUrl: String(formData.image || ''),
+                });
+                toast.success('Cập nhật khóa học thành công!');
+                navigate(`/teacher/content-editor/${encodeURIComponent(String(id))}`);
+                return;
+            }
 
-        navigate('/teacher/dashboard');
+            const created = await teacherService.createCourse({
+                title: String(formData.title),
+                description: String(formData.description),
+                imageUrl: String(formData.image || ''),
+                level: String(formData.level || LEVELS[0]),
+                duration: String(formData.duration || ''),
+                willLearn: Array.isArray(formData.willLearn) ? formData.willLearn : [],
+                requirements: Array.isArray(formData.requirements) ? formData.requirements : [],
+                published,
+                price: 0,
+                categoryId: (formData as any).categoryId ?? null,
+                tags: [],
+            });
+
+            toast.success('Tạo khóa học thành công!');
+            navigate(`/teacher/content-editor/${encodeURIComponent(String(created.id))}`);
+        } catch (err) {
+            toast.error(err instanceof Error ? err.message : 'Lưu khóa học thất bại');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
         <div className="w-full pb-20">
-            <div className="max-w-5xl mx-auto">
+            <div className="">
                 {/* Navigation & Actions */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
                     <button
@@ -118,16 +202,17 @@ const CourseEditor: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => navigate('/teacher/dashboard')}
-                            className="px-6 py-3 text-sm font-bold text-gray-400 hover:text-gray-600 transition-colors"
+                            className="cursor-pointer px-6 py-3 text-sm font-bold text-gray-400 hover:text-gray-600 transition-colors"
                         >
                             Hủy bỏ
                         </button>
                         <button
                             onClick={handleSubmit}
+                            disabled={isSaving}
                             className="flex items-center gap-2 bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-amber-600 transition-all shadow-xl shadow-gray-200 active:scale-95 cursor-pointer"
                         >
                             <Save size={18} />
-                            {isEditMode ? 'Cập nhật thay đổi' : 'Công khai khóa học'}
+                            {isEditMode ? 'Cập nhật thay đổi' : visibility === 'published' ? 'Công khai khóa học' : 'Lưu khóa học'}
                         </button>
                     </div>
                 </div>
@@ -142,14 +227,14 @@ const CourseEditor: React.FC = () => {
                                     <Layout size={24} />
                                 </div>
                                 <div>
-                                    <h2 className="text-xl font-black text-gray-900 tracking-tight">Định danh khóa học</h2>
+                                    <h2 className="text-xl font-bold text-gray-900 tracking-tight">Định danh khóa học</h2>
                                     <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mt-1">Nền tảng của nội dung học thuật</p>
                                 </div>
                             </div>
 
                             <div className="space-y-6">
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Tiêu đề khóa học <span className="text-red-500">*</span></label>
+                                    <label className="text-md font-bold text-gray-400 ml-1">Tiêu đề khóa học <span className="text-red-500">*</span></label>
                                     <input
                                         type="text"
                                         required
@@ -161,7 +246,7 @@ const CourseEditor: React.FC = () => {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Mô tả chi tiết <span className="text-red-500">*</span></label>
+                                    <label className="text-md font-bold text-gray-400 ml-1">Mô tả chi tiết <span className="text-red-500">*</span></label>
                                     <textarea
                                         required
                                         rows={6}
@@ -179,7 +264,7 @@ const CourseEditor: React.FC = () => {
                             <div className="space-y-6">
                                 <div className="flex items-center gap-3 border-l-4 border-emerald-500 pl-6">
                                     <CheckCircle2 size={24} className="text-emerald-500" />
-                                    <h2 className="text-lg font-black text-gray-900">Sinh viên sẽ học được gì?</h2>
+                                    <h2 className="text-lg font-bold text-gray-900">Sinh viên sẽ học được gì?</h2>
                                 </div>
 
                                 <div className="flex gap-3">
@@ -194,7 +279,7 @@ const CourseEditor: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => handleAddItem('willLearn')}
-                                        className="p-4 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
+                                        className="cursor-pointer p-4 bg-emerald-50 text-emerald-600 rounded-2xl hover:bg-emerald-600 hover:text-white transition-all shadow-sm"
                                     >
                                         <Plus size={24} />
                                     </button>
@@ -207,7 +292,7 @@ const CourseEditor: React.FC = () => {
                                             <button
                                                 type="button"
                                                 onClick={() => handleRemoveItem('willLearn', idx)}
-                                                className="hover:text-red-500 transition-colors"
+                                                className="hover:text-red-500 transition-colors cursor-pointer"
                                             >
                                                 <X size={14} />
                                             </button>
@@ -219,7 +304,7 @@ const CourseEditor: React.FC = () => {
                             <div className="space-y-6">
                                 <div className="flex items-center gap-3 border-l-4 border-amber-500 pl-6">
                                     <AlertCircle size={24} className="text-amber-500" />
-                                    <h2 className="text-lg font-black text-gray-900">Yêu cầu tham gia</h2>
+                                    <h2 className="text-lg font-bold text-gray-900">Yêu cầu tham gia</h2>
                                 </div>
 
                                 <div className="flex gap-3">
@@ -234,7 +319,7 @@ const CourseEditor: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => handleAddItem('requirements')}
-                                        className="p-4 bg-amber-50 text-amber-600 rounded-2xl hover:bg-amber-600 hover:text-white transition-all shadow-sm"
+                                        className="cursor-pointer p-4 bg-amber-50 text-amber-600 rounded-2xl hover:bg-amber-600 hover:text-white transition-all shadow-sm"
                                     >
                                         <Plus size={24} />
                                     </button>
@@ -247,7 +332,7 @@ const CourseEditor: React.FC = () => {
                                             <button
                                                 type="button"
                                                 onClick={() => handleRemoveItem('requirements', idx)}
-                                                className="hover:text-red-500 transition-colors"
+                                                className="hover:text-red-500 transition-colors cursor-pointer"
                                             >
                                                 <X size={14} />
                                             </button>
@@ -263,30 +348,74 @@ const CourseEditor: React.FC = () => {
                         {/* Course Thumbnail */}
                         <section className="bg-white rounded-[40px] border border-gray-100 shadow-sm overflow-hidden">
                             <div className="p-6 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between">
-                                <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Ảnh minh họa</span>
+                                <span className="text-md font-bold text-gray-400 ml-1">Ảnh minh họa</span>
                                 <ImageIcon size={16} className="text-gray-400" />
                             </div>
                             <div className="p-6 space-y-4">
                                 <div className="aspect-video rounded-2xl overflow-hidden bg-gray-100 border border-gray-100 relative group">
                                     <img
-                                        src={formData.image}
+                                        src={previewThumb || formData.image}
                                         alt="Course Preview"
                                         className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
                                     />
-                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                        <span className="text-white text-[10px] font-black uppercase tracking-widest">Preview Mode</span>
-                                    </div>
+                                    {(isThumbUploading || previewThumb) && (
+                                        <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center gap-2">
+                                            {isThumbUploading ? (
+                                                <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                                            ) : (
+                                                <div className="bg-amber-500 text-white px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg">Local Preview</div>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
-                                <div className="space-y-2">
-                                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">URL Hình ảnh</label>
-                                    <input
-                                        type="text"
-                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-100 rounded-xl outline-none focus:border-amber-500 transition-all font-medium text-xs text-gray-500"
-                                        value={formData.image}
-                                        onChange={e => setFormData({ ...formData, image: e.target.value })}
-                                        placeholder="https://images.unsplash.com/..."
-                                    />
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <label className={`w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest cursor-pointer transition-all ${isThumbUploading ? 'bg-amber-100 text-amber-700' : 'bg-gray-900 text-white hover:bg-amber-600'}`}>
+                                        {isThumbUploading ? 'Đang upload...' : 'Chọn ảnh từ máy'}
+                                        <input
+                                            type="file"
+                                            accept="image/png,image/jpeg"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const f = e.target.files?.[0];
+                                                e.target.value = '';
+                                                if (!f) return;
+
+                                                try {
+                                                    setIsThumbUploading(true);
+
+                                                    // Local preview
+                                                    const url = URL.createObjectURL(f);
+                                                    if (previewThumb) URL.revokeObjectURL(previewThumb);
+                                                    setPreviewThumb(url);
+
+                                                    const res = await teacherService.uploadQuizMedia(f);
+                                                    setFormData((prev) => ({ ...prev, image: res.url }));
+                                                    toast.success('Đã upload ảnh minh họa');
+                                                } catch (err: any) {
+                                                    toast.error(err?.message || 'Upload ảnh thất bại');
+                                                } finally {
+                                                    setIsThumbUploading(false);
+                                                }
+                                            }}
+                                        />
+                                    </label>
+
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setFormData((prev) => ({ ...prev, image: '' }));
+                                            if (previewThumb) {
+                                                URL.revokeObjectURL(previewThumb);
+                                                setPreviewThumb(null);
+                                            }
+                                        }}
+                                        className="cursor-pointer w-full px-4 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest bg-gray-50 text-gray-600 hover:bg-gray-100 transition-all"
+                                    >
+                                        Xóa URL
+                                    </button>
                                 </div>
+
                             </div>
                         </section>
 
@@ -294,28 +423,51 @@ const CourseEditor: React.FC = () => {
                         <section className="bg-white rounded-[40px] border border-gray-100 shadow-sm p-8 space-y-8">
                             <div className="space-y-6">
                                 <div className="space-y-2">
-                                    <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                    <div className="flex items-center gap-2 text-md font-bold text-gray-400 ml-1">
                                         <Hash size={12} className="text-amber-500" />
                                         Danh mục
                                     </div>
                                     <select
-                                        className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 transition-all font-black text-xs text-gray-900 cursor-pointer appearance-none uppercase tracking-wider"
-                                        value={formData.category}
-                                        onChange={e => setFormData({ ...formData, category: e.target.value })}
+                                        className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 transition-all font-bold text-xs text-gray-900 cursor-pointer appearance-none uppercase tracking-wider"
+                                        value={String((formData as any).categoryId ?? '')}
+                                        onChange={e => setFormData({ ...formData, categoryId: Number(e.target.value) } as any)}
                                     >
-                                        {CATEGORIES.map(cat => (
-                                            <option key={cat} value={cat}>{cat}</option>
-                                        ))}
+                                        {categories.length > 0 ? categories.map((cat) => (
+                                            <option key={String(cat.id)} value={String(cat.id)}>{cat.name}</option>
+                                        )) : (
+                                            <option value="">Không có danh mục</option>
+                                        )}
                                     </select>
                                 </div>
 
                                 <div className="space-y-2">
-                                    <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                    <div className="flex items-center gap-2 text-md font-bold text-gray-400 ml-1">
+                                        <Layout size={12} className="text-amber-500" />
+                                        Trạng thái hiển thị
+                                    </div>
+                                    <select
+                                        className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 transition-all font-bold text-xs text-gray-900 cursor-pointer appearance-none uppercase tracking-wider"
+                                        value={visibility}
+                                        onChange={(e) => setVisibility(e.target.value as any)}
+                                    >
+                                        <option value="draft">Nháp</option>
+                                        <option value="published">Công khai</option>
+                                        <option value="private">Không công khai</option>
+                                    </select>
+                                    {visibility === 'private' && (
+                                        <div className="text-xs font-bold text-gray-400">
+                                            Hiện backend mới có trường "published". Tùy chọn "Không công khai" sẽ được lưu tương đương "Nháp".
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2 text-md font-bold text-gray-400 ml-1">
                                         <BarChart size={12} className="text-amber-500" />
                                         Cấp độ học viên
                                     </div>
                                     <select
-                                        className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 transition-all font-black text-xs text-gray-900 cursor-pointer appearance-none uppercase tracking-wider"
+                                        className="w-full px-5 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-amber-500 transition-all font-bold text-xs text-gray-900 cursor-pointer appearance-none uppercase tracking-wider"
                                         value={formData.level}
                                         onChange={e => setFormData({ ...formData, level: e.target.value as Course['level'] })}
                                     >
@@ -326,7 +478,7 @@ const CourseEditor: React.FC = () => {
                                 </div>
 
                                 <div className="space-y-2">
-                                    <div className="flex items-center gap-2 text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">
+                                    <div className="flex items-center gap-2 text-md font-bold text-gray-400 ml-1">
                                         <Clock size={12} className="text-amber-500" />
                                         Thời lượng
                                     </div>

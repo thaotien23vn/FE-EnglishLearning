@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, User, Lock, Mail, Phone, Loader2 } from 'lucide-react';
+import { X, User, Lock, Mail, Phone, Loader2, EyeOff, Eye } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 type AuthMode = 'LOGIN' | 'REGISTER' | 'FORGOT_PASSWORD' | 'OTP_VERIFY';
@@ -11,7 +11,7 @@ interface AuthModalProps {
 }
 
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'LOGIN' }) => {
-    const { login, register } = useAuth();
+    const { login, register, verifyEmailCode, forgotPassword } = useAuth();
     const [mode, setMode] = useState<AuthMode>(initialMode);
 
     // Form states
@@ -22,11 +22,23 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [rememberMe, setRememberMe] = useState(false);
 
     const [otp, setOtp] = useState<string[]>(new Array(6).fill(''));
     const [otpError, setOtpError] = useState(false);
     const [otpSuccess, setOtpSuccess] = useState(false);
     const otpRefs = useRef<(HTMLInputElement | null)[]>([]);
+    const [showPassword, setShowPassword] = useState(false);
+    const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
+    const [pendingRegister, setPendingRegister] = useState<{
+        email: string;
+        password: string;
+        fullName: string;
+        phone?: string;
+    } | null>(null);
+
+    const [forgotEmail, setForgotEmail] = useState('');
 
     useEffect(() => {
         if (isOpen) {
@@ -35,12 +47,23 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
             setOtpError(false);
             setOtpSuccess(false);
             setError('');
+            setPendingRegister(null);
             // Reset form
             setEmail('');
             setPassword('');
             setFullName('');
             setPhoneNumber('');
             setConfirmPassword('');
+            setForgotEmail('');
+
+            // Load remembered email
+            const savedEmail = localStorage.getItem('remembered_email');
+            if (savedEmail) {
+                setEmail(savedEmail);
+                setRememberMe(true);
+            } else {
+                setRememberMe(false);
+            }
         }
     }, [isOpen, initialMode]);
 
@@ -51,6 +74,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
         try {
             const success = await login(email, password);
             if (success) {
+                if (rememberMe) {
+                    localStorage.setItem('remembered_email', email);
+                } else {
+                    localStorage.removeItem('remembered_email');
+                }
                 onClose();
             } else {
                 setError('Email hoặc mật khẩu không chính xác');
@@ -62,9 +90,24 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
         }
     };
 
-    const handleRegisterStep1 = (e: React.FormEvent) => {
+    //check password register
+    const checkPassword = (password: string) => {
+        const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+        return passwordRegex.test(password);
+    };
+
+    //Check password match register
+    const checkPasswordMatch = (password: string, confirmPassword: string) => {
+        return password === confirmPassword;
+    };
+
+    const handleRegisterStep1 = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (password !== confirmPassword) {
+        if (!checkPassword(password)) {
+            setError('Mật khẩu phải chứa ít nhất 8 ký tự, bao gồm chữ hoa, chữ thường, số và ký tự đặc biệt');
+            return;
+        }
+        if (!checkPasswordMatch(password, confirmPassword)) {
             setError('Mật khẩu xác nhận không khớp');
             return;
         }
@@ -72,22 +115,71 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
             setError('Vui lòng điền đầy đủ thông tin bắt buộc');
             return;
         }
-        setMode('OTP_VERIFY');
-    };
 
-    const handleFinalRegister = async () => {
+        setError('');
         setLoading(true);
         try {
-            await register({
+            const ok = await register({
                 email,
                 password,
                 fullName,
                 phone: phoneNumber,
                 role: 'STUDENT'
             });
-            onClose();
+
+            if (!ok) {
+                setError('Không thể đăng ký. Vui lòng thử lại');
+                return;
+            }
+
+            setPendingRegister({
+                email,
+                password,
+                fullName,
+                phone: phoneNumber,
+            });
+
+            setMode('OTP_VERIFY');
         } catch (err) {
             setError('Không thể đăng ký. Vui lòng thử lại');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleFinalRegister = async (customOtp?: string) => {
+        const code = customOtp || otp.join('');
+        if (code.length !== 6) return;
+        if (!pendingRegister) {
+            setError('Phiên đăng ký đã hết hạn. Vui lòng thử lại.');
+            setMode('REGISTER');
+            return;
+        }
+
+        setLoading(true);
+        setError('');
+        try {
+            const verified = await verifyEmailCode(code);
+            if (!verified) {
+                setOtpError(true);
+                setOtpSuccess(false);
+                return;
+            }
+
+            setOtpSuccess(true);
+            setOtpError(false);
+
+            // Wait a bit to show success message before closing/logging in
+            setTimeout(async () => {
+                // Try to login if not already logged in by verifyEmailCode
+                const loggedIn = await login(pendingRegister.email, pendingRegister.password);
+                if (loggedIn) {
+                    onClose();
+                }
+            }, 1000);
+        } catch (err) {
+            setOtpError(true);
+            setOtpSuccess(false);
         } finally {
             setLoading(false);
         }
@@ -105,17 +197,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
         }
 
         if (newOtp.every(val => val !== '')) {
-            const code = newOtp.join('');
-            if (code === '123456') {
-                setOtpSuccess(true);
-                setOtpError(false);
-            } else {
-                setOtpError(true);
-                setOtpSuccess(false);
-            }
-        } else {
             setOtpError(false);
-            setOtpSuccess(false);
+            // Auto submit when all digits are filled
+            const fullOtp = newOtp.join('');
+            setTimeout(() => {
+                handleFinalRegister(fullOtp);
+            }, 100);
         }
     };
 
@@ -131,7 +218,11 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
         <div className="flex items-center justify-between mb-6 relative">
             <h2 className="text-2xl font-bold text-gray-800 text-center w-full">{title}</h2>
             <button
-                onClick={onClose}
+                type="button"
+                onClick={(e) => {
+                    e.preventDefault();
+                    onClose();
+                }}
                 className="absolute right-[-10px] top-[-30px] cursor-pointer p-2 bg-white rounded-full shadow-lg text-gray-400 hover:text-gray-600 border border-gray-100 transition-all"
             >
                 <X size={20} />
@@ -144,7 +235,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
     const renderLogin = () => (
         <form onSubmit={handleLogin} className="space-y-4 pt-4">
             {renderHeader('Đăng nhập')}
-            {error && <p className="text-red-500 text-xs font-bold text-center bg-red-50 py-2 rounded-lg">{error}</p>}
+            {error && <p className="text-red-500 text-xs font-bold text-center bg-red-50 py-2 mb-12 rounded-lg">{error}</p>}
             <div className="relative">
                 <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-500/70" size={24} strokeWidth={2.5} />
                 <input
@@ -159,21 +250,50 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
             <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-500/70" size={24} strokeWidth={2.5} />
                 <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     placeholder="Mật khẩu"
                     className={inputClasses}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                 />
+                <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2  cursor-pointer"
+                >
+                    {showPassword ? <EyeOff size={18} className="text-gray-400" strokeWidth={2.5} /> : <Eye size={18} className="text-gray-400" strokeWidth={2.5} />}
+                </button>
             </div>
-            <button
-                type="button"
-                onClick={() => setMode('FORGOT_PASSWORD')}
-                className="text-blue-500 text-sm font-medium hover:underline block"
-            >
-                Quên mật khẩu?
-            </button>
+            <div className="flex items-center justify-between">
+                <label className="flex items-center gap-2 cursor-pointer group">
+                    <div className="relative">
+                        <input
+                            type="checkbox"
+                            id="rememberMe"
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                            className="sr-only"
+                        />
+                        <div className={`w-5 h-5 border-2 rounded-md transition-all flex items-center justify-center ${rememberMe ? 'bg-amber-600 border-amber-600' : 'border-gray-200 group-hover:border-amber-300'}`}>
+                            {rememberMe && (
+                                <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="4">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                            )}
+                        </div>
+                    </div>
+                    <span className="text-sm font-medium text-gray-600 group-hover:text-gray-800 transition-colors">Ghi nhớ đăng nhập</span>
+                </label>
+                <button
+                    type="button"
+                    onClick={() => setMode('FORGOT_PASSWORD')}
+                    className="text-amber-600 text-sm cursor-pointer font-bold hover:underline"
+                >
+                    Quên mật khẩu?
+                </button>
+            </div>
+
             <button
                 type="submit"
                 disabled={loading}
@@ -194,7 +314,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
     const renderRegister = () => (
         <form onSubmit={handleRegisterStep1} className="space-y-6 pt-4">
             {renderHeader('Đăng ký tài khoản')}
-            {error && <p className="text-red-500 text-xs font-bold text-center bg-red-50 py-2 rounded-lg">{error}</p>}
+            {error && <p className="text-red-500 text-xs font-bold text-center bg-red-50 py-2 mb-12 rounded-lg">{error}</p>}
             <div className="grid grid-cols-2 gap-x-12 relative">
                 <div className="absolute top-[-30px] left-0 right-0 flex justify-between px-2 text-sm font-bold text-gray-400">
                     <span className="text-amber-600">1. Thông tin tài khoản</span>
@@ -216,24 +336,38 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
                     <div className="relative">
                         <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-500/70" size={20} />
                         <input
-                            type="password"
+                            type={showPassword ? 'text' : 'password'}
                             placeholder="Mật khẩu*"
                             className={inputClasses}
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             required
                         />
+                        <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer"
+                        >
+                            {showPassword ? <EyeOff size={18} className="text-gray-400" strokeWidth={2.5} /> : <Eye size={18} className="text-gray-400" strokeWidth={2.5} />}
+                        </button>
                     </div>
                     <div className="relative">
                         <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-orange-500/70" size={20} />
                         <input
-                            type="password"
+                            type={showConfirmPassword ? 'text' : 'password'}
                             placeholder="Xác nhận mật khẩu*"
                             className={inputClasses}
                             value={confirmPassword}
                             onChange={(e) => setConfirmPassword(e.target.value)}
                             required
                         />
+                        <button
+                            type="button"
+                            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer"
+                        >
+                            {showConfirmPassword ? <EyeOff size={18} className="text-gray-400" strokeWidth={2.5} /> : <Eye size={18} className="text-gray-400" strokeWidth={2.5} />}
+                        </button>
                     </div>
                 </div>
 
@@ -267,6 +401,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
                 </div>
             </div>
 
+            <div className="flex w-full items-center justify-center gap-2 text-[14px] text-gray-500 mt-10">
+                <a href="#" className="text-amber-600 font-bold hover:underline cursor-pointer">Chính sách bảo mật </a>
+                <p> và </p>
+                <a href="#" className="text-amber-600 font-bold hover:underline cursor-pointer">Điều khoản sử dụng</a>
+            </div>
+
             <button
                 type="submit"
                 className="w-full cursor-pointer bg-amber-600 hover:bg-amber-700 text-white font-bold py-4 rounded-xl transition-all shadow-md active:scale-[0.98] mt-4"
@@ -294,6 +434,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
                     type="email"
                     placeholder="Email của bạn"
                     className={inputClasses}
+                    value={forgotEmail}
+                    onChange={(e) => setForgotEmail(e.target.value)}
                 />
             </div>
             <div className="flex justify-center gap-6 pt-4">
@@ -303,7 +445,24 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
                 >
                     Hủy bỏ
                 </button>
-                <button className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg shadow-blue-100">
+                <button
+                    disabled={loading || !forgotEmail}
+                    onClick={async () => {
+                        setLoading(true);
+                        setError('');
+                        try {
+                            const ok = await forgotPassword(forgotEmail);
+                            if (ok) {
+                                setMode('LOGIN');
+                            } else {
+                                setError('Không thể gửi yêu cầu. Vui lòng thử lại');
+                            }
+                        } finally {
+                            setLoading(false);
+                        }
+                    }}
+                    className="flex-1 bg-blue-600 text-white font-bold py-3 rounded-xl hover:bg-blue-700 transition-all cursor-pointer shadow-lg shadow-blue-100 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
                     Gửi yêu cầu
                 </button>
             </div>
@@ -314,7 +473,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
         <div className="space-y-6 pt-4">
             {renderHeader('Xác thực OTP')}
             <p className="text-center text-gray-600">
-                Mã xác thực đã được gửi tới email <b>{email}</b>. Nhập <b>123456</b> để test.
+                Mã xác thực đã được gửi tới email <b>{email}</b>.
             </p>
             <div className="flex justify-center gap-3">
                 {otp.map((data, index) => (
@@ -336,7 +495,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
                 ))}
             </div>
             {otpError && (
-                <p className="text-center text-red-500 text-sm font-bold animate-shake">Mã OTP không chính xác. Thử lại với 123456</p>
+                <p className="text-center text-red-500 text-sm font-bold animate-shake">Mã OTP không chính xác.</p>
             )}
             {otpSuccess && (
                 <p className="text-center text-green-500 text-sm font-bold">Xác thực thành công! Đang hoàn tất đăng ký...</p>
@@ -355,10 +514,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 'L
                 </button>
             </div>
             <button
-                onClick={handleFinalRegister}
-                disabled={!otpSuccess || loading}
+                onClick={() => handleFinalRegister()}
+                disabled={otp.join('').length !== 6 || loading}
                 className={`w-full font-bold py-4 rounded-xl transition-all shadow-md mt-4 flex items-center justify-center gap-2
-                    ${otpSuccess ? 'bg-[#A32323] hover:bg-[#8B1E1E] text-white cursor-pointer shadow-red-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
+                    ${otp.join('').length === 6 ? 'bg-[#A32323] hover:bg-[#8B1E1E] text-white cursor-pointer shadow-red-200' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}
             >
                 {loading && <Loader2 size={20} className="animate-spin" />}
                 Xác nhận & Đăng ký

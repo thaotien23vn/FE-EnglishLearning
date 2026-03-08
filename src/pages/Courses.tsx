@@ -2,18 +2,11 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, Filter, ChevronLeft, ChevronRight, LayoutGrid, List } from 'lucide-react';
 import CourseCard from '../components/home/CourseCard';
-import { type Course } from '../config/mock-data';
 import { useCourseStore } from '../store/useCourseStore';
+import { categoryService } from '../services/category.service';
+import { type FrontendCourse } from '../services/course.service';
 
 const PAGE_SIZE = 6;
-
-const CATEGORIES = [
-    'Tất cả',
-    'Bứt phá vào 10',
-    'Luyện thi TOEIC',
-    'Combo Lập trình',
-    'Tin học văn phòng'
-];
 
 const SORT_OPTIONS = [
     { label: 'Mới nhất', value: 'latest' },
@@ -25,17 +18,46 @@ const Courses: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('Tất cả');
     const [sortBy, setSortBy] = useState('latest');
-    const { courses } = useCourseStore();
+    const { courses, loadCourses } = useCourseStore();
+    const [categories, setCategories] = useState<string[]>(['Tất cả']);
     const [currentPage, setCurrentPage] = useState(1);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-    // Sync state with URL params if any
+    useEffect(() => {
+        loadCourses();
+    }, []);
+
+    useEffect(() => {
+        let mounted = true;
+        (async () => {
+            try {
+                const res = await categoryService.listCategories();
+                const names = res
+                    .map(c => c.name)
+                    .filter(Boolean);
+                const unique = Array.from(new Set(names));
+                if (mounted) {
+                    setCategories(['Tất cả', ...unique]);
+                }
+            } catch {
+                if (mounted) {
+                    setCategories(['Tất cả']);
+                }
+            }
+        })();
+
+        return () => {
+            mounted = false;
+        };
+    }, []);
+
+    // Sync state with URL params if any (after categories loaded)
     useEffect(() => {
         const cat = searchParams.get('category');
-        if (cat && CATEGORIES.includes(cat)) {
+        if (cat && categories.includes(cat)) {
             setSelectedCategory(cat);
         }
-    }, [searchParams]);
+    }, [searchParams, categories]);
 
     // Filtering & Sorting Logic
     const filteredCourses = useMemo(() => {
@@ -130,7 +152,7 @@ const Courses: React.FC = () => {
                             <div className="space-y-3">
                                 <p className="text-xs font-bold text-gray-400 uppercase tracking-widest pl-1">Chủ đề</p>
                                 <div className="space-y-1">
-                                    {CATEGORIES.map(cat => (
+                                    {categories.map((cat: string) => (
                                         <button
                                             key={cat}
                                             onClick={() => setSelectedCategory(cat)}
@@ -198,7 +220,7 @@ const Courses: React.FC = () => {
                         {/* Course Grid */}
                         {paginatedCourses.length > 0 ? (
                             <div className={`grid gap-8 ${viewMode === 'grid' ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
-                                {paginatedCourses.map((course: Course) => (
+                                {paginatedCourses.map((course: FrontendCourse) => (
                                     <div key={course.id}>
                                         <CourseCard course={course} />
                                     </div>
